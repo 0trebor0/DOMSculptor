@@ -1,0 +1,20 @@
+{
+  "name": "domsculptor",
+  "version": "1.0.0",
+  "description": "Create dom element",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "build": "webpack --config webpack.config.js"
+  },
+  "keywords": [],
+  "author": "0trebor0",
+  "license": "ISC",
+  "devDependencies": {
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "path": "^0.12.7"
+  }
+}
