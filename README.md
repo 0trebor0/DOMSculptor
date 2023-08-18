@@ -1,6 +1,6 @@
 # DOMSculptor
 
-let div = create('div',document.body);
+	let div = create('div',document.body);
 
 	let video = div.createChild('video');
 	video.setAttribute('autoplay');
