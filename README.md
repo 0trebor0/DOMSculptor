@@ -1,4 +1,4 @@
-# DOMSculptor - Client Side Library
+# DOMSculptor - Client Utility Function
 
 	let div = create('div',document.body);
 
