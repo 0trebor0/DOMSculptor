@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Create dom element",
   "main": "main.js",
-  "private": true,
+  "private": false,
   "scripts": {
     "build": "webpack --config webpack.config.js"
   },

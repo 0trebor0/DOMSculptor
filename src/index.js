@@ -5,7 +5,7 @@
  * @param {callback} function -the callback function
  * @returns {object} - returns {}
  */
-export default create = ( name,parent=null,callback=null ) =>{
+function create( name,parent=null,callback=null ){
 
     let e = {};
     
