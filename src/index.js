@@ -118,16 +118,15 @@ function search( value ){
  */
 function searchAll( value ){
 
-    let arr = [];
-
-    document.querySelectorAll( value ).forEach(f=>{
-        let e = {};
-        e.html = f;
-        loadFeatures( e );
-        arr.push(e);
-    })
-
-    return arr;
+    return Array.from(document.querySelectorAll(value), element => {
+        
+        let e = { html: element };
+        
+        loadFeatures(e);
+        
+        return e;
+    
+    });
 
 }
 /**
