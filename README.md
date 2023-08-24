@@ -2,12 +2,16 @@
 
 	let div = create('div',document.body);
 
+	create('div',document.body).setAttribute('id','test');
+	search('div#test').createChild('img')
+
 	let video = div.createChild('video');
 	video.setAttribute('autoplay');
 	video.setAttribute('controls');
 	video.setAttribute('src','https://example/example.mp4');
 	video.setStyle('width','100%');
 	video.setStyle('height','100%');
+	
 
 	div return {
 		html DOM,

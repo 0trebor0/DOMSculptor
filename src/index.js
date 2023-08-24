@@ -1,16 +1,9 @@
 /**
- * function to  create dom element
- * @param {name} string - the name of the element
- * @param {parent} object - the dom, object of element
- * @param {callback} function -the callback function
- * @returns {object} - returns {}
+ * function to loadFeatures
+ * @param {object} object - The object of which you want to add features
+ * @returns {string} - returns ''
  */
-function create( name,parent=null,callback=null ){
-
-    let e = {};
-    
-    e.html = document.createElement( name );
-    
+function loadFeatures( e ){
     e.children = [];
 
     e.setAttribute = (name,value='')=>{
@@ -100,6 +93,57 @@ function create( name,parent=null,callback=null ){
         return e.html.removeEventListener(event, callback);
     
     }
+    return;
+}
+/**
+ * function to search element
+ * @param {value} string - The id or name of element
+ * @returns {object} - returns {}
+ */
+function search( value ){
+
+    let e = {};
+
+    loadFeatures( e );
+
+    e.html = document.querySelector( value );
+
+    return e;
+
+}
+/**
+ * function to search element
+ * @param {value} string - The id or name of element
+ * @returns {object} - returns []
+ */
+function searchAll( value ){
+
+    let arr = [];
+
+    document.querySelectorAll( value ).forEach(f=>{
+        let e = {};
+        e.html = f;
+        loadFeatures( e );
+        arr.push(e);
+    })
+
+    return arr;
+
+}
+/**
+ * function to  create dom element
+ * @param {name} string - the name of the element
+ * @param {parent} object - the dom, object of element
+ * @param {callback} function -the callback function
+ * @returns {object} - returns {}
+ */
+function create( name,parent=null,callback=null ){
+
+    let e = {};
+    
+    e.html = document.createElement( name );
+    
+    loadFeatures( e );
 
     if( parent == null ){
 
