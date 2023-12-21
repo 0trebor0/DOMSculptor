@@ -1,4 +1,4 @@
-export class {
+export class App{
     loadFeatures( e ){
         e.children = [];
     
