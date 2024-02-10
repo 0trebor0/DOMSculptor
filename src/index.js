@@ -1,72 +1,129 @@
 class App {
 
     create(name, parent = null, callback = null) {
-        var e = document.createElement(name);
 
-        var addChild = (child) => {
-            if (parent instanceof HTMLElement) {
-                parent.appendChild(child);
-            } else if (typeof parent === 'string') {
-                document.querySelector(parent)?.appendChild(child);
-            } else {
-                document.body.appendChild(child);
-            }
-        };
+        let e = {};
 
-        var setAttributes = (attributes) => {
-            for (var [name, value] of Object.entries(attributes)) {
-                e.setAttribute(name, value);
-            }
-        };
+        e.html = document.createElement(name);
 
-        var addClass = (className) => {
-            e.classList.add(className);
-        };
+        e.children = [];
 
-        var setText = (text) => {
-            e.textContent = text;
-        };
+        e.setAttribute = (name, value = '') => {
 
-        var setStyle = (styles) => {
-            Object.assign(e.style, styles);
-        };
+            return e.html.setAttribute(name, value);
 
-        var hide = () => {
-            e.style.display = 'none';
-        };
-
-        var createChild = (childName, childCallback = null) => {
-            var childElement = this.create(childName, e, childCallback);
-            e.appendChild(childElement);
-            return childElement;
-        };
-
-        var on = (event, handler) => {
-            e.addEventListener(event, handler);
-        };
-
-        var off = (event, handler) => {
-            e.removeEventListener(event, handler);
-        };
-
-        if (parent) {
-            addChild(e);
         }
 
-        if (callback && typeof callback === 'function') {
+        e.removeAttribute = (name) => {
+
+            return e.html.removeAttribute(name);
+
+        }
+
+        e.getAttribute = (name) => {
+
+            return e.html.getAttribute(name);
+
+        }
+
+        e.hasAttribute = (name) => {
+
+            return e.html.hasAttribute(name);
+
+        }
+
+        e.addClass = (value) => {
+
+            return e.html.classList.add(value);
+
+        }
+
+        e.removeClass = (value) => {
+
+            return e.html.classList.remove(value);
+
+        }
+
+        e.containsClass = (value) => {
+
+            return e.html.classList.contains(value);
+
+        }
+
+        e.setText = (text) => {
+
+            e.html.textContent = text;
+
+        }
+
+        e.setStyle = (property, value) => {
+
+            e.html.style[property] = value;
+
+        }
+
+        e.hide = () => {
+
+            return e.setStyle('display', 'none');
+
+        }
+
+        e.appendChild = (child) => {
+
+            return e.html.appendChild(child);
+
+        }
+
+        e.createChild = (name, callback = null) => {
+
+            if (typeof callback !== 'function') {
+                callback = null;
+            }
+
+            return this.create(name, e, callback);
+
+        }
+
+        e.on = (event, callback) => {
+
+            return e.html.addEventListener(event, callback);
+
+        }
+
+        e.off = (event, callback) => {
+
+            return e.html.removeEventListener(event, callback);
+
+        }
+
+        if (parent == null) {
+
+            document.body.lastChild.appendChild(e.html);
+
+        } else if ('html' in parent) {
+
+            parent.children.push(e);
+
+            parent.html.appendChild(e.html);
+
+        } else if ('nodeType' in parent && parent.nodeType === 1) {
+
+            parent.appendChild(e.html);
+
+        } else if (document.querySelector(parent)) {
+
+            document.querySelector(parent).appendChild(e.html);
+
+        }
+
+        if (typeof callback == 'function') {
+
             callback(e);
+
         }
 
-        return {
-            html: e,
-            setAttribute: setAttributes,
-            addClass,
-            setText,
-            setStyle,
-            hide,
-            createChild,
-            on,
-            off,
-        };
+        return e;
+
     }
+
 }
