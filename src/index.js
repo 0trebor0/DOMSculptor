@@ -10,57 +10,43 @@ class App {
 
         e.setAttribute = (name, value = '') => {
 
-            e.html.setAttribute(name, value);
-
-            return e;
+            return e.html.setAttribute(name, value);
 
         }
 
         e.removeAttribute = (name) => {
 
-            e.html.removeAttribute(name);
-
-            return e;
+            return e.html.removeAttribute(name);
 
         }
 
         e.getAttribute = (name) => {
 
-            e.html.getAttribute(name);
-
-            return e;
+            return e.html.getAttribute(name);
 
         }
 
         e.hasAttribute = (name) => {
 
-            e.html.hasAttribute(name);
-
-            return e;
+            return e.html.hasAttribute(name);
 
         }
 
         e.addClass = (value) => {
 
-            e.html.classList.add(value);
-
-            return e;
+            return e.html.classList.add(value);
 
         }
 
         e.removeClass = (value) => {
 
-            e.html.classList.remove(value);
-
-            return e;
+            return e.html.classList.remove(value);
 
         }
 
         e.containsClass = (value) => {
 
-            e.html.classList.contains(value);
-
-            return e;
+            return e.html.classList.contains(value);
 
         }
 
@@ -68,31 +54,23 @@ class App {
 
             e.html.textContent = text;
 
-            return e;
-
         }
 
         e.setStyle = (property, value) => {
 
             e.html.style[property] = value;
 
-            return e;
-
         }
 
         e.hide = () => {
 
-            e.setStyle('display', 'none');
-
-            return e;
+            return e.setStyle('display', 'none');
 
         }
 
         e.appendChild = (child) => {
 
-            e.html.appendChild(child);
-
-            return e;
+            return e.html.appendChild(child);
 
         }
 
@@ -108,17 +86,13 @@ class App {
 
         e.on = (event, callback) => {
 
-            e.html.addEventListener(event, callback);
-
-            return e;
+            return e.html.addEventListener(event, callback);
 
         }
 
         e.off = (event, callback) => {
 
-            e.html.removeEventListener(event, callback);
-
-            return e;
+            return e.html.removeEventListener(event, callback);
 
         }
 
