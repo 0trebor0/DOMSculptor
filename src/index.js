@@ -31,7 +31,10 @@ class DomSculptor {
 
         ele.setText = (text) => { ele.html.textContent = text; }
 
-        ele.setStyle = (property, value) => { ele.html.style[property] = value; }
+        ele.setStyle = (property, value) => { 
+            ele.html.style[property] = value;
+            return ele;
+        }
 
         ele.hide = () => ele.setStyle('display', 'none');
 
@@ -42,6 +45,20 @@ class DomSculptor {
             },
             create:( name, callback = null )=>{
                 return this.create(name, ele, callback);
+            }
+        };
+
+        ele.class = {
+            add: (value) => {
+                ele.html.classList.add(value);
+                return ele;
+            },
+            remove: (value) => {
+                ele.html.classList.remove(value);
+                return ele;
+            },
+            contains: (value) => {
+                return ele.html.classList.contains(value);
             }
         };
 

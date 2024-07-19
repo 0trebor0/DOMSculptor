@@ -4,15 +4,97 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dom Sculptor</title>
     <script src="./src/index.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.1/css/bulma.min.css">
 </head>
 <body>
     <script>
-        class Theme extends App{
+        class Theme extends DomSculptor{
             constructor(){
                 super();
+                this.home();
+            }
+            home(){
+                let section = this.create('section',document.body);
+                section.class.add('hero');
+                section.class.add('is-fullheight');
+                section.child.create('div').class.add('hero-body').child.create('div',(e)=>{
+                    let title = e.child.create('h1');
+                    title.setText('Dom Sculptor');
+                    title.class.add('title');
+
+                    e.child.create('p').setText('The DomSculptor class provides a powerful API to create and manipulate HTML elements dynamically. This guide will walk you through the usage of the class, demonstrating how to create elements, set attributes, add classes, handle events, and convert JSON objects into HTML structures.');
+                    
+                    e.child.create('br');
+                    
+                    e.child.create('h2').class.add('subtitle').setText('Initialization');
+                    e.child.create('p').setText(`First, you need to create an instance of the 'DomSculptor' class:`);
+                    e.child.create('pre').child.create('code').setText(`const domSculptor = new DomSculptor();`);
+
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Creating Elements');
+                    e.child.create('p').setText(`You can create an HTML element using the 'create' method. This method takes three parameters:`);
+                    e.child.create('li').setText(`'name': The name of the HTML element to create (e.g., 'div', 'span').`);
+                    e.child.create('li').setText(`'parent': The parent element to which the new element will be appended. If null, it will be appended to the document.body.`);
+                    e.child.create('li').setText(`'callback': An optional callback function that will be executed once the element is created.`);
+                    e.child.create('h2').setText(`Example:`);
+                    e.child.create('pre').child.create('code').setText(`const div = domSculptor.create('div', null, (e) => {\r\ne.attribute.set('id', 'mainDiv').setText('Hello World');\r\n});`);
+                    
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Setting and Getting Attributes');
+                    e.child.create('p').setText('You can set, get, remove, and check for attributes using the attribute property:');
+                    e.child.create('pre').child.create('code').setText(`div.attribute.set('data-example', 'value'); // Set an attribute \r\nconsole.log(div.attribute.get('data-example')); // Get an attribute\r\ndiv.attribute.remove('data-example'); // Remove an attribute\r\nconsole.log(div.attribute.has('data-example')); // Check if an attribute exists`);
+
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Adding and Removing Classes');
+                    e.child.create('p').setText(`You can add, remove, and check for classes using the 'class' property:`);
+                    e.child.create('pre').child.create(`code`).setText(`div.class.add('myClass'); // Add a class \r\n div.class.remove('myClass'); // Remove a class \r\n console.log(div.class.contains('myClass')); // Check if a class exists`);
+
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Setting Text and Styles');
+                    e.child.create('p').setText(`You can set the text content and CSS styles of an element:`)
+                    e.child.create('pre').child.create(`code`).setText(`div.setText('Updated Text'); \r\ndiv.setStyle('color', 'red');`);
+
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Hiding an Element');
+                    e.child.create('p').setText(`You can hide an element using the 'hide' method:`)
+                    e.child.create('pre').child.create(`code`).setText(`div.hide();`);
+                    
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Appending and Creating Child Elements');
+                    e.child.create('p').setText(`You can append existing child elements or create new ones:`)
+                    e.child.create('pre').child.create(`code`).setText(`const span = document.createElement('span'); \r\n div.child.append(span); // Append an existing child element \r\n const childDiv = div.child.create('div', (e) => { \r\n e.setText('Child Div'); \r\n }); // Create and append a new child element`);
+                    
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Adding Event Listeners');
+                    e.child.create('p').setText(`You can add and remove event listeners:`)
+                    e.child.create('pre').child.create(`code`).setText(`div.on('click', () => console.log('Div clicked')); \r\n div.off('click', () => console.log('Div clicked'));`);
+                    
+                    e.child.create('br');
+                    e.child.create('br');
+
+                    e.child.create('h2').class.add('subtitle').setText('Converting JSON to HTML');
+                    e.child.create('p').setText(`The 'jsontohtml' method allows you to create HTML elements from a JSON object:`)
+                    e.child.create('pre').child.create(`code`).setText(`const jsonObject = { \r\n type: 'div', \r\n parent: null, \r\n attributes: [{ type: 'id', content: 'jsonDiv' }], \r\n class: ['jsonClass'], \r\n content: 'This is a JSON-created div' \r\n }; \r\n const jsonDiv = domSculptor.jsontohtml(jsonObject);`);
+                    e.child.create('p').setText(`Here’s a more comprehensive example demonstrating the usage of various methods:`);
+                    e.child.create(`pre`).child.create(`code`).setText(`const domSculptor = new DomSculptor();\r\n\r\n// Create a new div element\r\nconst div = domSculptor.create('div', null, (e) => {\r\n    e.attribute.set('id', 'mainDiv')\r\n       .set('data-info', 'example')\r\n       .setText('Hello World')\r\n       .setStyle('color', 'blue')\r\n       .on('click', () => alert('Div clicked'));\r\n    e.class.add('container');\r\n});\r\n\r\n// Create a child element within the div\r\nconst childSpan = div.child.create('span', (e) => {\r\n    e.setText('This is a span inside the div');\r\n});\r\n\r\n// Create an element from JSON\r\nconst jsonObject = {\r\n    type: 'div',\r\n    parent: 'body',\r\n    attributes: [{ type: 'id', content: 'jsonDiv' }],\r\n    class: ['jsonClass'],\r\n    content: [\r\n        {\r\n            type: 'span',\r\n            content: 'Nested span inside JSON div'\r\n        }\r\n    ]\r\n};\r\n\r\nconst jsonDiv = domSculptor.jsontohtml(jsonObject);\r\n`);
+                }).class.add('container').class.add('has-text-centered');
             }
         }
-        window.onload = ()=>{}
+        window.onload = ()=> new Theme();
     </script>
 </body>
 </html>
