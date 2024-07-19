@@ -2,67 +2,80 @@ class App {
 
     create(name, parent = null, callback = null) {
 
-        let e = {};
+        let ele = {};
 
-        e.html = document.createElement(name);
+        ele.html = document.createElement(name);
 
-        e.children = [];
+        ele.children = [];
 
-        e.setAttribute = (name, value = '') => e.html.setAttribute(name, value);
+        ele.attribute = {
+            set:(name, value = '')=>{
+                ele.html.setAttribute(name, value);
+                return ele;
+            },
+            remove:( name )=>{
+                ele.html.removeAttribute(name)
+                return ele;
+            },
+            get:( name )=>{
+                ele.html.getAttribute(name);
+                return ele;
+            },
+            has:( name )=>{
+                ele.html.hasAttribute(name);
+                return ele;
+            }
+        };
 
-        e.removeAttribute = (name) => e.html.removeAttribute(name);
+        
 
-        e.getAttribute = (name) => e.html.getAttribute(name);
+        ele.setText = (text) => { ele.html.textContent = text; }
 
-        e.hasAttribute = (name) => e.html.hasAttribute(name);
+        ele.setStyle = (property, value) => { ele.html.style[property] = value; }
 
-        e.addClass = (value) => e.html.classList.add(value);
+        ele.hide = () => ele.setStyle('display', 'none');
 
-        e.removeClass = (value) => e.html.classList.remove(value);
+        ele.child = {
+            append:( child )=>{
+                ele.html.appendChild(child);
+                return ele;
+            },
+            create:( name, callback = null )=>{
+                return this.create(name, ele, callback);
+            }
+        };
 
-        e.containsClass = (value) => e.html.classList.contains(value);
+        ele.on = (event, callback) => ele.html.addEventListener(event, callback);
 
-        e.setText = (text) => { e.html.textContent = text; }
-
-        e.setStyle = (property, value) => { e.html.style[property] = value; }
-
-        e.hide = () => e.setStyle('display', 'none');
-
-        e.appendChild = (child) => e.html.appendChild(child);
-
-        e.createChild = (name, callback = null) => this.create(name, e, callback);
-
-        e.on = (event, callback) => e.html.addEventListener(event, callback);
-
-        e.off = (event, callback) => e.html.removeEventListener(event, callback);
+        ele.off = (event, callback) => ele.html.removeEventListener(event, callback);
 
         if (parent == null) {
 
-            document.body.lastChild.appendChild(e.html);
+            document.body.lastChild.appendChild(ele.html);
 
         } else if ('html' in parent) {
 
-            parent.children.push(e);
+            parent.children.push(ele);
 
-            parent.html.appendChild(e.html);
+            parent.html.appendChild(ele.html);
 
         } else if ('nodeType' in parent && parent.nodeType === 1) {
 
-            parent.appendChild(e.html);
+            parent.appendChild(ele.html);
 
         } else if (document.querySelector(parent)) {
 
-            document.querySelector(parent).appendChild(e.html);
+            document.querySelector(parent).appendChild(ele.html);
 
         }
 
         if (typeof callback == 'function') {
 
-            callback(e);
+            callback(ele);
 
         }
 
-        return e;
+        return ele;
 
     }
     jsontohtml( object ){
@@ -107,7 +120,5 @@ class App {
         }
         return element;
     }
-    setTitle( title = '' ){
-        document.title = title;
-    }
+
 }
