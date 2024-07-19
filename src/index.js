@@ -1,4 +1,4 @@
-class App {
+class DomSculptor {
 
     create(name, parent = null, callback = null) {
 
