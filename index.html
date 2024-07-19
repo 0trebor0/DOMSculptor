@@ -27,7 +27,9 @@
                     e.child.create('br');
                     
                     e.child.create('h2').class.add('subtitle').setText('Initialization');
-                    e.child.create('p').setText(`First, you need to create an instance of the 'DomSculptor' class:`);
+                    e.child.create('p').setText(`First include the DomSculptor 'Script' SRC to your html head`);
+                    e.child.create('pre').child.create('code').setText(`https://cdn.jsdelivr.net/npm/domsculptor/src/index.min.js`);
+                    e.child.create('p').setText(`Second, you need to create an instance of the 'DomSculptor' class:`);
                     e.child.create('pre').child.create('code').setText(`const domSculptor = new DomSculptor();`);
 
                     e.child.create('br');
