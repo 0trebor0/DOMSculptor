@@ -110,10 +110,10 @@ class DomSculptor {
         }
         let element = this.create( object.type, object.parent );
         if( object.attributes && typeof object.attributes == 'object' ){
-            object.attributes.forEach(attr => element.setAttribute(attr.type, attr.content));
+            object.attributes.forEach(attr => element.attribute.set(attr.type, attr.content));
         }
         if( object.class && Array.isArray( object.class) ){
-            object.class.forEach(cls => element.addClass(cls));
+            object.class.forEach(cls => element.class.add(cls));
         }
         if( object.onclick && typeof object.onclick == 'function' ){
             element.on( 'click', object.onclick );
