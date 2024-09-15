@@ -48,7 +48,7 @@ class DomSculptor {
                     return ele;
                 },
                 create:( name, callback = null )=>{
-                    return create(name, ele, callback);
+                    return this.create(name, ele, callback);
                 },
                 remove:()=>{
                     ele.children.forEach(child => {
