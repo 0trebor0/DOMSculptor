@@ -9,349 +9,263 @@ class DomSculptor {
         // Create the native DOM element
         ele.html = document.createElement(name);
 
-        // Track sculpted child elements created via ele.child.create
+        // Track sculpted child elements created via ele.child.create or append(sculpted)
         ele.children = [];
 
         // Store event listeners correctly (using an array per event type)
-        // This replaces the original `ele.events = {};` which only stored the last listener
         ele._listeners = {};
 
         // Attribute handling object
         ele.attribute = {
-            /**
-             * Sets one or more attributes. Returns the element for chaining.
-             * @param {string|object} name - The attribute name or an object of name-value pairs.
-             * @param {string} [value] - The attribute value (only if name is a string).
-             * @returns {object} The element object (ele) for chaining.
-             */
             set: (name, value = '') => {
                 if (typeof name === 'object' && name !== null) {
-                    // Set multiple attributes from object
-                    for (const key in name) {
+                    for (let key in name) {
                         if (Object.hasOwnProperty.call(name, key)) {
                             ele.html.setAttribute(key, name[key]);
                         }
                     }
                 } else if (typeof name === 'string') {
-                    // Set single attribute
                     ele.html.setAttribute(name, value);
                 } else {
                     console.warn('DomSculptor: attribute.set received invalid name type.', name);
                 }
-                return ele; // Chainable
+                return ele;
             },
-            /**
-             * Removes an attribute.
-             * @param {string} name - The attribute name.
-             * @returns {object} The element object (ele) for chaining.
-             */
             remove: (name) => {
                 ele.html.removeAttribute(name);
-                return ele; // Chainable
+                return ele;
             },
-            /**
-             * Gets an attribute value.
-             * @param {string} name - The attribute name.
-             * @returns {string|null} The attribute value or null if not set.
-             */
             get: (name) => {
-                return ele.html.getAttribute(name); // <-- Correctly return the value
+                return ele.html.getAttribute(name);
             },
-            /**
-             * Checks if the element has a specific attribute.
-             * @param {string} name - The attribute name.
-             * @returns {boolean} True if the attribute exists, false otherwise.
-             */
             has: (name) => {
-                return ele.html.hasAttribute(name); // <-- Correctly return the boolean
+                return ele.html.hasAttribute(name);
             }
         };
 
-        /**
-         * Sets the text content of the element.
-         * @param {string} text - The text content.
-         * @returns {object} The element object (ele) for chaining.
-         */
         ele.setText = (text) => {
             ele.html.textContent = text;
-            return ele; // Chainable
+            return ele;
         }
 
-        /**
-         * Sets one or more CSS styles. Returns the element for chaining.
-         * @param {string|object} property - The style property name or an object of property-value pairs.
-         * @param {string} [value] - The style value (only if property is a string).
-         * @returns {object} The element object (ele) for chaining.
-         */
         ele.setStyle = (property, value) => {
              if (typeof property === 'object' && property !== null) {
-                 // Set multiple styles from object
-                 for (const key in property) {
+                 for (let key in property) {
                      if (Object.hasOwnProperty.call(property, key)) {
-                         ele.html.style[key] = value;
+                         ele.html.style[key] = property[key]; // Fix: Use property[key] as the style key
                      }
                  }
              } else if (typeof property === 'string' && value !== undefined) {
-                 // Set single style
                  ele.html.style[property] = value;
              } else {
                  console.warn('DomSculptor: setStyle received invalid arguments.', property, value);
              }
-             return ele; // Chainable
+             return ele;
         }
 
-        /**
-         * Hides the element by setting its display style to 'none'.
-         * @returns {object} The element object (ele) for chaining.
-         */
         ele.hide = () => ele.setStyle('display', 'none');
 
-        /**
-         * Shows the element by clearing its display style.
-         * Note: This resets display to the browser's default for the element type.
-         * @returns {object} The element object (ele) for chaining.
-         */
-        ele.show = () => ele.setStyle('display', ''); // Or 'block', 'flex', etc.
+        ele.show = () => ele.setStyle('display', '');
 
-
-        // Child handling object
         ele.child = {
-            /**
-             * Appends a child element or text node.
-             * Handles both native DOM nodes and other sculpted element objects.
-             * @param {object|Node|string} child - The sculpted element object, native DOM node, or text string to append.
-             * @returns {object} The parent element object (ele) for chaining.
-             */
             append: (child) => {
                 if (child && child.html && child.html instanceof Node) {
-                    // If it's another sculpted element object
                     ele.html.appendChild(child.html);
-                    // Add it to the parent's sculpted children list
-                    ele.children.push(child);
+                    ele.children.push(child); // Track sculpted children
                 } else if (child instanceof Node) {
-                    // If it's a native DOM node
                     ele.html.appendChild(child);
                 } else if (typeof child === 'string') {
-                    // If it's a string, append as a text node
                     ele.html.appendChild(document.createTextNode(child));
                 } else {
                     console.warn('DomSculptor: child.append received invalid child type.', child);
                 }
-                return ele; // Chainable
+                return ele;
             },
-            /**
-             * Creates a new child element using the DomSculptor factory and appends it.
-             * Returns the newly created child element object.
-             * @param {string} name - The tag name of the child element.
-             * @param {function|object} [callbackOrOptions=null] - Callback or options for the child.
-             * @returns {object} The newly created child element object.
-             */
             create: (name, callbackOrOptions = null) => {
                 // Use the parent's create method (this refers to the DomSculptor instance)
-                // Pass `ele` (the current element object) as the parent
-                const childEle = this.create(name, ele, callbackOrOptions);
+                let childEle = this.create(name, ele, callbackOrOptions); // Pass `ele` as the parent
                 // The main create method handles pushing childEle to ele.children
-                return childEle; // Return the child object for chaining on the child
+                return childEle;
             },
-            /**
-             * Removes this element (redundant, same as calling ele.remove()).
-             */
-            remove: () => {
-                // This is just a shortcut for ele.remove()
-                ele.remove();
-            }
+            remove: () => { ele.remove(); } // Redundant shortcut
         };
 
-        // Class handling object
         ele.class = {
-            /**
-             * Adds one or more CSS classes.
-             * @param {...string} values - The classes to add.
-             * @returns {object} The element object (ele) for chaining.
-             */
             add: (...values) => {
-                if (values.length > 0) {
-                   ele.html.classList.add(...values);
-                }
-                return ele; // Chainable
+                if (values.length > 0) { ele.html.classList.add(...values); }
+                return ele;
             },
-            /**
-             * Removes one or more CSS classes.
-             * @param {...string} values - The classes to remove.
-             * @returns {object} The element object (ele) for chaining.
-             */
             remove: (...values) => {
-                 if (values.length > 0) {
-                    ele.html.classList.remove(...values);
-                 }
-                return ele; // Chainable
+                 if (values.length > 0) { ele.html.classList.remove(...values); }
+                return ele;
             },
-            /**
-             * Checks if the element has a specific CSS class.
-             * @param {string} value - The class name to check.
-             * @returns {boolean} True if the element has the class, false otherwise.
-             */
             contains: (value) => {
-                return ele.html.classList.contains(value); // <-- Correctly return the boolean
+                return ele.html.classList.contains(value);
             }
         };
 
-        /**
-         * Adds an event listener or multiple listeners to the element.
-         * Returns the element for chaining.
-         * @param {string|object} event - The event type (e.g., 'click') or an object of eventType-callback pairs.
-         * @param {function} [callback] - The callback function (only if event is a string).
-         * @returns {object} The element object (ele) for chaining.
-         */
         ele.on = (event, callback) => {
             if (typeof event === 'object' && event !== null) {
-                 // Add multiple event listeners from object
-                 for (const key in event) {
+                 for (let key in event) {
                       if (Object.hasOwnProperty.call(event, key) && typeof event[key] === 'function') {
-                          ele.on(key, event[key]); // Recursively call for each event
+                          ele.on(key, event[key]);
                       }
                  }
-                 return ele; // Chainable
+                 return ele;
              } else if (typeof event === 'string' && typeof callback === 'function') {
-                 // Add single event listener
                  ele.html.addEventListener(event, callback);
-                 // Store the listener reference for removal
-                 if (!ele._listeners[event]) {
-                     ele._listeners[event] = [];
-                 }
+                 if (!ele._listeners[event]) { ele._listeners[event] = []; }
                  ele._listeners[event].push(callback);
              } else {
                   console.warn(`DomSculptor: Invalid arguments for .on('${event}', ${callback})`);
              }
-             return ele; // Chainable
+             return ele;
         };
 
-        /**
-         * Removes an event listener or all listeners of a specific type.
-         * Returns the element for chaining.
-         * @param {string} event - The event type.
-         * @param {function} [callback] - The specific callback function to remove. If omitted, all listeners for eventType added via .on() are removed.
-         * @returns {object} The element object (ele) for chaining.
-         */
         ele.off = (event, callback = null) => {
             if (!ele._listeners[event]) {
-                 // No listeners of this type were added via .on()
-                if (callback) {
-                    // Still try to remove if a specific callback was provided (though it won't be tracked)
-                    ele.html.removeEventListener(event, callback);
-                }
-                return ele; // Chainable
+               if (callback) { ele.html.removeEventListener(event, callback); }
+               return ele;
             }
-
             if (callback) {
-                // Remove a specific listener
                 ele.html.removeEventListener(event, callback);
-                // Remove from stored listeners
                 ele._listeners[event] = ele._listeners[event].filter(cb => cb !== callback);
-                if (ele._listeners[event].length === 0) {
-                    delete ele._listeners[event];
-                }
+                if (ele._listeners[event].length === 0) { delete ele._listeners[event]; }
             } else {
-                // Remove all listeners for this event type added via .on()
-                ele._listeners[event].forEach(cb => {
-                    ele.html.removeEventListener(event, cb);
-                });
-                delete ele._listeners[event]; // Clear stored listeners
+                ele._listeners[event].forEach(cb => { ele.html.removeEventListener(event, cb); });
+                delete ele._listeners[event];
             }
-           return ele; // Chainable
+           return ele;
         };
 
-        /**
-         * Removes the element from the DOM and cleans up event listeners and child references.
-         */
         ele.remove = () => {
-            // Remove all registered event listeners
-            for (const eventType in ele._listeners) {
+            for (let eventType in ele._listeners) {
                  if (Object.hasOwnProperty.call(ele._listeners, eventType)) {
                       ele._listeners[eventType].forEach(callback => {
                           ele.html.removeEventListener(eventType, callback);
                       });
                  }
              }
-             ele._listeners = {}; // Clear stored listeners
+             ele._listeners = {};
 
-            // Recursively remove sculpted children
             ele.children.forEach(child => {
-                // Ensure the child still exists and is a sculpted element before removing
-                 if (child && child.remove && typeof child.remove === 'function') {
-                     child.remove();
-                 }
+                 if (child && child.remove && typeof child.remove === 'function') { child.remove(); }
             });
-            ele.children = []; // Clear child references
+            ele.children = [];
 
-            // Remove the native element from the DOM
             if (ele.html && ele.html.parentNode) {
-                ele.html.parentNode.removeChild(ele.html); // <-- Correct DOM removal using parent
-                // OR use the modern .remove() method: ele.html.remove();
+                ele.html.parentNode.removeChild(ele.html);
             }
-
-            // Optional: Nullify references to aid garbage collection
-            ele.html = null;
-            // ele.children = null; // Already cleared
-            // ele._listeners = null; // Already cleared
-            // Do NOT set ele = null; here, it only affects the local variable within the remove function.
+            ele.html = null; // Clean up reference
         };
 
         // --- Parent Appending Logic ---
-        // This logic determines where to attach the newly created element's native html node
-
         let parentNode = null;
 
-        if (parent == null) {
-            // If parent is null, append to the document body
-            parentNode = document.body;
-
-        } else if (parent && typeof parent === 'object' && 'html' in parent && parent.html instanceof Node) {
-            // If parent is another sculpted element object (duck typing check for .html property)
-            parentNode = parent.html;
-            // Also add this new element to the parent's sculpted children list
-            if (parent.children && Array.isArray(parent.children)) {
-                 parent.children.push(ele);
-            } else {
-                 // Initialize children array if it doesn't exist (shouldn't happen with this structure)
-                 parent.children = [ele];
-            }
-
-
-        } else if (parent instanceof Node) {
-            // If parent is a native DOM Node
-            parentNode = parent;
-
-        } else if (typeof parent === 'string') {
-            // If parent is a CSS selector string
-            parentNode = document.querySelector(parent);
-            if (!parentNode) {
-                console.warn(`DomSculptor.create: Could not find parent element with selector: "${parent}". Element not appended.`);
-                // If selector doesn't match, parentNode remains null, and it won't be appended.
-                // Continue to call callback if it exists, as element was still "created".
-            }
-        } else {
-            console.warn('DomSculptor.create: Invalid parent type provided. Element not appended.', parent);
-             // If parent is something else unexpected, parentNode remains null.
-             // Continue to call callback if it exists.
+        if (parent == null) { parentNode = document.body; }
+        else if (parent && typeof parent === 'object' && 'html' in parent && parent.html instanceof Node) {
+             parentNode = parent.html;
+             if (parent.children && Array.isArray(parent.children)) { parent.children.push(ele); } else { parent.children = [ele]; }
         }
+        else if (parent instanceof Node) { parentNode = parent; }
+        else if (typeof parent === 'string') {
+             parentNode = document.querySelector(parent);
+             if (!parentNode) { console.warn(`DomSculptor.create: Could not find parent element with selector: "${parent}". Element not appended.`); }
+        } else { console.warn('DomSculptor.create: Invalid parent type provided. Element not appended.', parent); }
 
-        // Perform the actual DOM appending if a parent node was found
-        if (parentNode) {
-            parentNode.appendChild(ele.html);
-        }
+        if (parentNode) { parentNode.appendChild(ele.html); }
 
         // Execute the optional callback function, passing the created element object
-        if (typeof callback == 'function') {
-            callback(ele);
-        }
+        if (typeof callback == 'function') { callback(ele); }
 
-        // Return the created element object
         return ele;
     }
 
-    // jsontohtml method is not included as per the request, but could be added here
-    // if you wanted to combine the previous functionality into this single class.
-    // jsontohtml( object ){ ... }
+    /**
+     * Builds a DOM structure from a configuration object.
+     * This method is an instance method, call it on a DomSculptor instance.
+     * @param {object} config - The configuration object for the root element.
+     * @param {string} config.type - The HTML tag name.
+     * @param {object|Node|string|null} config.parent - The parent for the root element. Required for the root config.
+     * @param {object} [config.attributes] - Key-value object of attributes.
+     * @param {string[]} [config.classes] - Array of classes.
+     * @param {object} [config.styles] - Key-value object of styles.
+     * @param {string} [config.text] - Text content for the element.
+     * @param {object} [config.events] - Object of eventType-callback pairs.
+     * @param {function} [config.oncreate] - Callback function after creation, receives the element object.
+     * @param {(object|string)[]} [config.children] - Array of child configuration objects or text strings.
+     * @returns {object} The root element object (ele) created.
+     */
+    jsontohtml(config) {
+        if (typeof config !== 'object' || config === null) {
+            throw new Error('DomSculptor.jsontohtml: Configuration must be a valid object.');
+        }
+        if (!config.type) {
+            throw new Error('DomSculptor.jsontohtml: Configuration must specify "type".');
+        }
+        // Require parent for the *root* config object, consistent with original validation
+        if (config.parent === undefined) { // Check explicitly for undefined or check !('parent' in config)
+             // Checking !('parent' in config) matches original
+             if (!('parent' in config)) {
+                throw new Error('DomSculptor.jsontohtml: Must Specify The Parent Element for the root config.');
+             }
+        }
+
+
+        // Use the create method to make the element, passing relevant options
+        // The create method handles the parent appending and the initial oncreate callback
+        let element = this.create(config.type, config.parent, {
+             // Pass options recognized by the improved create method
+             attributes: config.attributes,
+             classes: config.classes,
+             styles: config.styles,
+             text: config.text, // Use 'text' for simple text content
+             events: config.events,
+             oncreate: config.oncreate, // Pass the oncreate callback from config
+             // Note: The old 'content' property is replaced by 'text' and 'children'
+        });
+
+        // Recursively build children from the 'children' array
+        if (Array.isArray(config.children)) {
+            config.children.forEach(childConfig => {
+                if (typeof childConfig === 'object' && childConfig !== null) {
+                    // If child is a config object, recursively build it
+                    // Pass the current `element` as the parent for the child
+                    // This recursive call handles creation and appending to 'element'
+                    this.jsontohtml({ ...childConfig, parent: element });
+                } else if (typeof childConfig === 'string') {
+                    // If child is a string, append it as a text node
+                    element.child.append(childConfig); // Use the append method
+                } else {
+                     console.warn('DomSculptor.jsontohtml: Invalid child configuration type. Expected object or string.', childConfig);
+                }
+            });
+        }
+         // Optional: Add backward compatibility for the original 'content' property
+         // This part replicates the original logic's intent, fixing the string array issue
+         else if (config.content !== undefined) {
+             console.warn("DomSculptor.jsontohtml: Using deprecated 'content' property. Use 'text' for strings and 'children' for array of configs/strings.");
+             if (typeof config.content === 'string') {
+                  element.setText(config.content); // Use the setText method
+             } else if (Array.isArray(config.content)) {
+                  config.content.forEach(item => {
+                       if (typeof item === 'object' && item !== null) {
+                           // Recursive call, parent is the current element
+                           this.jsontohtml({ ...item, parent: element });
+                       } else if (typeof item === 'string') {
+                           // Append string as text node (fixes original overwrite issue)
+                           element.child.append(item); // Use append method
+                       } else {
+                           console.warn('DomSculptor.jsontohtml: Invalid item type in "content" array. Expected object or string.', item);
+                       }
+                  });
+             } else {
+                 console.warn('DomSculptor.jsontohtml: Invalid "content" type. Expected string or array.', config.content);
+             }
+         }
+
+
+        return element; // Return the root element object
+    }
 
 }
