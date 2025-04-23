@@ -22,7 +22,9 @@ You can also include DomSculptor via CDN.  Add this to your `<head>`:
 
 ```html
 <script src="https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js"></script>
-Important: If using the CDN, ensure your main script comes after this <script> tag.Example HTML StructureHere's a basic HTML example showing how to include DomSculptor (using the CDN method):<!DOCTYPE html>
+Important: If using the CDN, ensure your main script comes after this <script> tag.
+Example HTML StructureHere's a basic HTML example showing how to include DomSculptor (using the CDN method):
+<!DOCTYPE html>
 <html>
 <head>
     <title>My Webpage</title>
