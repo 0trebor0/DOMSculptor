@@ -177,6 +177,8 @@ const complexStructure = sculptor.jsontohtml({
         }
     ]
 });
+```
+
 
 ## Contributing
 
