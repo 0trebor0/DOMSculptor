@@ -1,9 +1,16 @@
-# DomSculptor: Simplify Your DOM Manipulation
+# DomSculptor
+
+A lightweight JavaScript library for simplifying DOM manipulation.
 
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://GitHub.com/0trebor0/DOMSculptor/graphs/commit-activity)
 [![GitHub Stars](https://img.shields.io/github/stars/0trebor0/DOMSculptor?style=social)](https://github.com/0trebor0/DOMSculptor/stargazers)
 
-`DomSculptor` is a lightweight JavaScript class designed to make Document Object Model (DOM) manipulation more organized, readable, and efficient. It provides a streamlined API for creating, modifying, and managing HTML elements.
+## Table of Contents
+
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Getting Started
 
@@ -15,40 +22,51 @@ No installation is required! Include the `DomSculptor` class definition in your 
 
 Copy the entire `DomSculptor` class code and paste it directly into your main JavaScript file or within a `<script>` tag in your HTML.
 
-**Option 2: CDN (Alternative)**
+**Option 2: CDN**
 
-You can also include DomSculptor via CDN. Add this to your `<head>`:
+You can also include DomSculptor via CDN. Add the following script tag to your `<head>`:
 
 ```html
-<script src="[https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js](https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js)"></script>
-Important: If using the CDN, ensure your main script comes after this <script> tag.Example HTML StructureHere's a basic HTML example showing how to include DomSculptor (using the CDN method):<!DOCTYPE html>
-<html>
-<head>
-    <title>My Webpage</title>
-    <script src="[https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js](https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js)"></script>
-    <script src="script.js"></script> <--- Your main script file
-</head>
-<body>
-    <div id="content-area"></div>
-    <script>
-        // Your main JavaScript code (script.js)
-        const sculptor = new DomSculptor(); 
-        // ... your DomSculptor code here
-    </script>
-</body>
-</html>
-UsageCreate a DomSculptor Instance:const sculptor = new DomSculptor();
-Create New HTML Elements with create():// Create a <div> and append it to the <body>
+<script src="https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js"></script>
+```
+
+**Important:** Ensure your main script comes after this `<script>` tag.
+
+## Usage
+
+Create a DomSculptor Instance:
+
+```javascript
+const sculptor = new DomSculptor();
+```
+
+Create New HTML Elements with `create()`:
+
+```javascript
+// Create a <div> and append it to the <body>
 const myDiv = sculptor.create('div');
 document.body.appendChild(myDiv.html); // Don't forget to append the actual HTML element
+```
 
 // Create a <p> and append it to the div
 const myParagraph = sculptor.create('p', myDiv).setText('This is some text.');
 
-// Create a <span> and append it to the <body>
+### Create a <span> and append it to the \`<body>\`:
+
+```javascript
 const mySpan = sculptor.create('span', document.body).setText('A simple span.');
-sculptor.create('tagname', parent, callback):'tagname': The HTML tag to create.parent (optional): The parent element (DOM node, DomSculptor element, or CSS selector). Defaults to <body>.callback (optional): A function executed after creation, receiving the DomSculptor element object.Modify Element Content with setText():const heading = sculptor.create('h1', document.body).setText('My Awesome Title');
-Manage Attributes with attribute:const image = sculptor.create('img', document.body)
+```
+
+### Modify Element Content with \`setText()\`:
+
+```javascript
+const heading = sculptor.create('h1', document.body).setText('My Awesome Title');
+```
+
+### Manage Attributes with \`attribute\`:
+
+```javascript
+const image = sculptor.create('img', document.body)
     .attribute.set('src', 'image.jpg')
     .attribute.set('alt', 'An image')
     .attribute.set({ width: '200', height: '150' })
@@ -56,23 +74,48 @@ Manage Attributes with attribute:const image = sculptor.create('img', document.b
 
 const altText = image.attribute.get('alt');
 const hasWidth = image.attribute.has('width');
-Apply Styles with setStyle():const button = sculptor.create('button', document.body)
+```
+
+### Apply Styles with \`setStyle()\`:
+
+```javascript
+const button = sculptor.create('button', document.body)
     .setText('Click Me')
     .setStyle('background-color', 'lightblue')
     .setStyle({ padding: '10px 20px', border: 'none', cursor: 'pointer' });
-Show/Hide Elements with hide() and show():const message = sculptor.create('div', document.body).setText('Hidden Message').hide();
+```
+
+### Show/Hide Elements with \`hide()\` and \`show()\`:
+
+```javascript
+const message = sculptor.create('div', document.body).setText('Hidden Message').hide();
 // ... later ...
 message.show();
-Manage Child Elements with child:const myList = sculptor.create('ul', document.body)
+```
+
+### Manage Child Elements with \`child\`:
+
+```javascript
+const myList = sculptor.create('ul', document.body)
     .child.append('First Item (text)')
     .child.create('li').setText('Second Item')
     .child.append(sculptor.create('li').setText('Third Item'));
-Work with CSS Classes with class:const specialDiv = sculptor.create('div', document.body).setText('Special')
+```
+
+### Work with CSS Classes with \`class\`:
+
+```javascript
+const specialDiv = sculptor.create('div', document.body).setText('Special')
     .class.add('important', 'highlight')
     .class.remove('highlight');
 
 const isImportant = specialDiv.class.contains('important');
-Handle Events with on() and off():const clickableButton = sculptor.create('button', document.body)
+```
+
+### Handle Events with \`on()\` and \`off()\`:
+
+```javascript
+const clickableButton = sculptor.create('button', document.body)
     .setText('Clickable')
     .on('click', () => alert('Button was clicked!'))
     .on({
@@ -88,10 +131,19 @@ const anotherButton = sculptor.create('button', document.body).setText('Multiple
 const clickHandler1 = () => console.log('Click 1');
 const clickHandler2 = () => console.log('Click 2');
 anotherButton.on('click', clickHandler1).on('click', clickHandler2).off('click');
-Remove Elements with remove():const removableDiv = sculptor.create('div', document.body).setText('I will be removed.');
+```
+
+### Remove Elements with \`remove()\`:
+
+```javascript
+const removableDiv = sculptor.create('div', document.body).setText('I will be removed.');
 // ... later ...
 removableDiv.remove();
-Build Complex Structures with jsontohtml():```javascript
+```
+
+### Build Complex Structures with \`jsontohtml()\`:
+
+```javascript
 const complexStructure = sculptor.jsontohtml({
     type: 'div',
     parent: document.getElementById('content-area'),
@@ -110,3 +162,27 @@ const complexStructure = sculptor.jsontohtml({
         },
         {
             type: 'button',
+            text: 'Click Me',
+            events: { 
+                click: () => alert('Button clicked!') 
+            },
+            oncreate: (buttonElement) => {
+                buttonElement.setStyle({
+                    backgroundColor: 'blue',
+                    color: 'white',
+                    padding: '10px',
+                    border: 'none',
+                    cursor: 'pointer'
+                });
+            }
+        }
+    ]
+});
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a pull request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
