@@ -10,21 +10,19 @@
 
 ### Installation
 
-No installation is required!  Include the `DomSculptor` class definition in your JavaScript code.
+No installation is required! Include the `DomSculptor` class definition in your JavaScript code.
 
 **Option 1: Copy and Paste**
 
 Copy the entire `DomSculptor` class code and paste it directly into your main JavaScript file or within a `<script>` tag in your HTML.
 
-**Option 2:  CDN (Alternative)**
+**Option 2: CDN (Alternative)**
 
-You can also include DomSculptor via CDN.  Add this to your `<head>`:
+You can also include DomSculptor via CDN. Add this to your `<head>`:
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js"></script>
-Important: If using the CDN, ensure your main script comes after this <script> tag.
-Example HTML StructureHere's a basic HTML example showing how to include DomSculptor (using the CDN method):
-<!DOCTYPE html>
+<script src="[https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js](https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js)"></script>
+Important: If using the CDN, ensure your main script comes after this <script> tag.Example HTML StructureHere's a basic HTML example showing how to include DomSculptor (using the CDN method):<!DOCTYPE html>
 <html>
 <head>
     <title>My Webpage</title>
@@ -94,7 +92,8 @@ anotherButton.on('click', clickHandler1).on('click', clickHandler2).off('click')
 Remove Elements with remove():const removableDiv = sculptor.create('div', document.body).setText('I will be removed.');
 // ... later ...
 removableDiv.remove();
-Build Complex Structures with jsontohtml():const complexStructure = sculptor.jsontohtml({
+Build Complex Structures with jsontohtml():```javascript
+const complexStructure = sculptor.jsontohtml({
     type: 'div',
     parent: document.getElementById('content-area'),
     attributes: { id: 'main-container' },
@@ -112,9 +111,3 @@ Build Complex Structures with jsontohtml():const complexStructure = sculptor.jso
         },
         {
             type: 'button',
-            text: 'Click Me',
-            events: { click: () => alert('Button clicked!') }
-        }
-    ]
-});
-ContributingContributions are welcome! Feel free to submit pull requests with bug fixes or enhancements. Please follow standard GitHub practices.LicenseThis project is licensed under the MIT License - see the LICENSE file for details.AcknowledgmentsInspired by the need for cleaner DOM manipulation in vanilla JavaScript.Thanks to the open-source community for their valuable insights
