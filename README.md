@@ -10,7 +10,6 @@ A lightweight JavaScript library for simplifying DOM manipulation.
 - [Getting Started](#getting-started)
 - [Usage](#usage)
 - [Contributing](#contributing)
-- [License](#license)
 
 ## Getting Started
 
