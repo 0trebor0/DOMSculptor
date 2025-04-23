@@ -26,12 +26,11 @@ Copy the entire `DomSculptor` class code and paste it directly into your main Ja
     <html>
     <head>
         <title>My Webpage</title>
-        <script src="dom-sculptor.js"></script>
+        <script src="https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js"></script>
         <script src="script.js"></script>
     </head>
     <body>
         <div id="content-area"></div>
-        <script src="script.js"></script>
     </body>
     </html>
     ```
