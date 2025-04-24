@@ -4,160 +4,146 @@ class DomSculptor {
     create(name, parent = null, callback = null) {
 
         // Create the core object that will hold the element and methods
-        let ele = {};
-
-        // Create the native DOM element
-        ele.html = document.createElement(name);
-
-        // Track sculpted child elements created via ele.child.create or append(sculpted)
-        ele.children = [];
-
-        // Store event listeners correctly (using an array per event type)
-        ele._listeners = {};
-
-        // Attribute handling object
-        ele.attribute = {
-            set: (name, value = '') => {
-                if (typeof name === 'object' && name !== null) {
-                    for (let key in name) {
-                        if (Object.hasOwnProperty.call(name, key)) {
-                            ele.html.setAttribute(key, name[key]);
+        let ele = {
+            html:document.createElement(name),
+            children:[],
+            _listeners:{},
+            attribute:{
+                set: (name, value = '') => {
+                    if (typeof name === 'object' && name !== null) {
+                        for (let key in name) {
+                            if (Object.hasOwnProperty.call(name, key)) {
+                                ele.html.setAttribute(key, name[key]);
+                            }
+                        }
+                    } else if (typeof name === 'string') {
+                        ele.html.setAttribute(name, value);
+                    } else {
+                        console.warn('DomSculptor: attribute.set received invalid name type.', name);
+                    }
+                    return ele;
+                },
+                remove: (name) => {
+                    ele.html.removeAttribute(name);
+                    return ele;
+                },
+                get: (name) => {
+                    return ele.html.getAttribute(name);
+                },
+                has: (name) => {
+                    return ele.html.hasAttribute(name);
+                }
+            },
+            setText:(text)=>{
+                ele.html.textContent = text;
+                return ele;
+            },
+            setStyle:(property, value) => {
+                if (typeof property === 'object' && property !== null) {
+                    for (let key in property) {
+                        if (Object.hasOwnProperty.call(property, key)) {
+                            ele.html.style[key] = property[key]; // Fix: Use property[key] as the style key
                         }
                     }
-                } else if (typeof name === 'string') {
-                    ele.html.setAttribute(name, value);
+                } else if (typeof property === 'string' && value !== undefined) {
+                    ele.html.style[property] = value;
                 } else {
-                    console.warn('DomSculptor: attribute.set received invalid name type.', name);
+                    console.warn('DomSculptor: setStyle received invalid arguments.', property, value);
                 }
                 return ele;
+           },
+           hide:() =>{
+                ele.setStyle('display', 'none');
+           },
+           show:()=>{
+                ele.setStyle('display', '')
+           },
+           child:{
+                append: (child) => {
+                    if (child && child.html && child.html instanceof Node) {
+                        ele.html.appendChild(child.html);
+                        ele.children.push(child);
+                    } else if (child instanceof Node) {
+                        ele.html.appendChild(child);
+                    } else if (typeof child === 'string') {
+                        ele.html.appendChild(document.createTextNode(child));
+                    } else {
+                        console.warn('DomSculptor: child.append received invalid child type.', child);
+                    }
+                    return ele;
+                },
+                create: (name, callbackOrOptions = null) => {
+                    let childEle = this.create(name, ele, callbackOrOptions);
+                    return childEle;
+                },
+                remove: () => { ele.remove(); }
             },
-            remove: (name) => {
-                ele.html.removeAttribute(name);
-                return ele;
+            class:{
+                add: (...values) => {
+                    if (values.length > 0) { ele.html.classList.add(...values); }
+                    return ele;
+                },
+                remove: (...values) => {
+                     if (values.length > 0) { ele.html.classList.remove(...values); }
+                    return ele;
+                },
+                contains: (value) => {
+                    return ele.html.classList.contains(value);
+                }
             },
-            get: (name) => {
-                return ele.html.getAttribute(name);
-            },
-            has: (name) => {
-                return ele.html.hasAttribute(name);
-            }
-        };
-
-        ele.setText = (text) => {
-            ele.html.textContent = text;
-            return ele;
-        }
-
-        ele.setStyle = (property, value) => {
-             if (typeof property === 'object' && property !== null) {
-                 for (let key in property) {
-                     if (Object.hasOwnProperty.call(property, key)) {
-                         ele.html.style[key] = property[key]; // Fix: Use property[key] as the style key
+            on:(event, callback) => {
+                if (typeof event === 'object' && event !== null) {
+                     for (let key in event) {
+                          if (Object.hasOwnProperty.call(event, key) && typeof event[key] === 'function') {
+                              ele.on(key, event[key]);
+                          }
                      }
-                 }
-             } else if (typeof property === 'string' && value !== undefined) {
-                 ele.html.style[property] = value;
-             } else {
-                 console.warn('DomSculptor: setStyle received invalid arguments.', property, value);
-             }
-             return ele;
-        }
-
-        ele.hide = () => ele.setStyle('display', 'none');
-
-        ele.show = () => ele.setStyle('display', '');
-
-        ele.child = {
-            append: (child) => {
-                if (child && child.html && child.html instanceof Node) {
-                    ele.html.appendChild(child.html);
-                    ele.children.push(child); // Track sculpted children
-                } else if (child instanceof Node) {
-                    ele.html.appendChild(child);
-                } else if (typeof child === 'string') {
-                    ele.html.appendChild(document.createTextNode(child));
-                } else {
-                    console.warn('DomSculptor: child.append received invalid child type.', child);
-                }
-                return ele;
-            },
-            create: (name, callbackOrOptions = null) => {
-                // Use the parent's create method (this refers to the DomSculptor instance)
-                let childEle = this.create(name, ele, callbackOrOptions); // Pass `ele` as the parent
-                // The main create method handles pushing childEle to ele.children
-                return childEle;
-            },
-            remove: () => { ele.remove(); } // Redundant shortcut
-        };
-
-        ele.class = {
-            add: (...values) => {
-                if (values.length > 0) { ele.html.classList.add(...values); }
-                return ele;
-            },
-            remove: (...values) => {
-                 if (values.length > 0) { ele.html.classList.remove(...values); }
-                return ele;
-            },
-            contains: (value) => {
-                return ele.html.classList.contains(value);
-            }
-        };
-
-        ele.on = (event, callback) => {
-            if (typeof event === 'object' && event !== null) {
-                 for (let key in event) {
-                      if (Object.hasOwnProperty.call(event, key) && typeof event[key] === 'function') {
-                          ele.on(key, event[key]);
-                      }
+                     return ele;
+                 } else if (typeof event === 'string' && typeof callback === 'function') {
+                     ele.html.addEventListener(event, callback);
+                     if (!ele._listeners[event]) { ele._listeners[event] = []; }
+                     ele._listeners[event].push(callback);
+                 } else {
+                      console.warn(`DomSculptor: Invalid arguments for .on('${event}', ${callback})`);
                  }
                  return ele;
-             } else if (typeof event === 'string' && typeof callback === 'function') {
-                 ele.html.addEventListener(event, callback);
-                 if (!ele._listeners[event]) { ele._listeners[event] = []; }
-                 ele._listeners[event].push(callback);
-             } else {
-                  console.warn(`DomSculptor: Invalid arguments for .on('${event}', ${callback})`);
-             }
-             return ele;
-        };
-
-        ele.off = (event, callback = null) => {
-            if (!ele._listeners[event]) {
-               if (callback) { ele.html.removeEventListener(event, callback); }
+            },
+            off:(event, callback = null) => {
+                if (!ele._listeners[event]) {
+                   if (callback) { ele.html.removeEventListener(event, callback); }
+                   return ele;
+                }
+                if (callback) {
+                    ele.html.removeEventListener(event, callback);
+                    ele._listeners[event] = ele._listeners[event].filter(cb => cb !== callback);
+                    if (ele._listeners[event].length === 0) { delete ele._listeners[event]; }
+                } else {
+                    ele._listeners[event].forEach(cb => { ele.html.removeEventListener(event, cb); });
+                    delete ele._listeners[event];
+                }
                return ele;
-            }
-            if (callback) {
-                ele.html.removeEventListener(event, callback);
-                ele._listeners[event] = ele._listeners[event].filter(cb => cb !== callback);
-                if (ele._listeners[event].length === 0) { delete ele._listeners[event]; }
-            } else {
-                ele._listeners[event].forEach(cb => { ele.html.removeEventListener(event, cb); });
-                delete ele._listeners[event];
-            }
-           return ele;
-        };
-
-        ele.remove = () => {
-            for (let eventType in ele._listeners) {
-                 if (Object.hasOwnProperty.call(ele._listeners, eventType)) {
-                      ele._listeners[eventType].forEach(callback => {
-                          ele.html.removeEventListener(eventType, callback);
-                      });
+            },
+            remove:() => {
+                for (let eventType in ele._listeners) {
+                     if (Object.hasOwnProperty.call(ele._listeners, eventType)) {
+                          ele._listeners[eventType].forEach(callback => {
+                              ele.html.removeEventListener(eventType, callback);
+                          });
+                     }
                  }
-             }
-             ele._listeners = {};
-
-            ele.children.forEach(child => {
-                 if (child && child.remove && typeof child.remove === 'function') { child.remove(); }
-            });
-            ele.children = [];
-
-            if (ele.html && ele.html.parentNode) {
-                ele.html.parentNode.removeChild(ele.html);
+                 ele._listeners = {};
+    
+                ele.children.forEach(child => {
+                     if (child && child.remove && typeof child.remove === 'function') { child.remove(); }
+                });
+                ele.children = [];
+    
+                if (ele.html && ele.html.parentNode) {
+                    ele.html.parentNode.removeChild(ele.html);
+                }
+                ele.html = null; // Clean up reference
             }
-            ele.html = null; // Clean up reference
-        };
+        }
 
         // --- Parent Appending Logic ---
         let parentNode = null;
@@ -180,22 +166,6 @@ class DomSculptor {
 
         return ele;
     }
-
-    /**
-     * Builds a DOM structure from a configuration object.
-     * This method is an instance method, call it on a DomSculptor instance.
-     * @param {object} config - The configuration object for the root element.
-     * @param {string} config.type - The HTML tag name.
-     * @param {object|Node|string|null} config.parent - The parent for the root element. Required for the root config.
-     * @param {object} [config.attributes] - Key-value object of attributes.
-     * @param {string[]} [config.classes] - Array of classes.
-     * @param {object} [config.styles] - Key-value object of styles.
-     * @param {string} [config.text] - Text content for the element.
-     * @param {object} [config.events] - Object of eventType-callback pairs.
-     * @param {function} [config.oncreate] - Callback function after creation, receives the element object.
-     * @param {(object|string)[]} [config.children] - Array of child configuration objects or text strings.
-     * @returns {object} The root element object (ele) created.
-     */
     jsontohtml(config) {
         if (typeof config !== 'object' || config === null) {
             throw new Error('DomSculptor.jsontohtml: Configuration must be a valid object.');
