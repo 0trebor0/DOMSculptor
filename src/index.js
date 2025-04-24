@@ -39,17 +39,7 @@ class DomSculptor {
                 return ele;
             },
             setStyle:(property, value) => {
-                if (typeof property === 'object' && property !== null) {
-                    for (let key in property) {
-                        if (Object.hasOwnProperty.call(property, key)) {
-                            ele.html.style[key] = property[key]; // Fix: Use property[key] as the style key
-                        }
-                    }
-                } else if (typeof property === 'string' && value !== undefined) {
-                    ele.html.style[property] = value;
-                } else {
-                    console.warn('DomSculptor: setStyle received invalid arguments.', property, value);
-                }
+                ele.html.style[property] = value;
                 return ele;
            },
            hide:() =>{
