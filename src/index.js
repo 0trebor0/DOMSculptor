@@ -179,11 +179,11 @@ class DomSculptor {
                     } else if (typeof item === 'string') {
                         element.child.append(item);
                     } else {
-                        console.warn('DomSculptor.jsontohtml: Invalid item type in \"content\" array.", item);
+                        console.warn('DomSculptor.jsontohtml: Invalid item type in \content\ array.', item);
                     }
                 });
             } else {
-                console.warn('DomSculptor.jsontohtml: Invalid \"content\" type.", config.content);
+                console.warn('DomSculptor.jsontohtml: Invalid \content\ type.', config.content);
             }
         }
 
