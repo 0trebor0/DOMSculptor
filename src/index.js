@@ -164,72 +164,47 @@ class DomSculptor {
         if (typeof config !== 'object' || config === null) {
             throw new Error('DomSculptor.jsontohtml: Configuration must be a valid object.');
         }
-        if (!config.type) {
-            throw new Error('DomSculptor.jsontohtml: Configuration must specify "type".');
+        if (!config.type) throw new Error('DomSculptor.jsontohtml: Must specify "type".');
+        if (!config.parent) throw new Error('DomSculptor.jsontohtml: Must specify "parent".');
+    
+        // Create the element
+        let element = this.create(config.type, config.parent);
+    
+        // Apply attributes
+        if (config.attributes && typeof config.attributes === 'object') {
+            element.attribute.set(config.attributes);
         }
-        // Require parent for the *root* config object, consistent with original validation
-        if (config.parent === undefined) { // Check explicitly for undefined or check !('parent' in config)
-             // Checking !('parent' in config) matches original
-             if (!('parent' in config)) {
-                throw new Error('DomSculptor.jsontohtml: Must Specify The Parent Element for the root config.');
-             }
+    
+        // Apply classes
+        if (Array.isArray(config.classes)) {
+            element.class.add(...config.classes);
         }
-
-
-        // Use the create method to make the element, passing relevant options
-        // The create method handles the parent appending and the initial oncreate callback
-        let element = this.create(config.type, config.parent, {
-             // Pass options recognized by the improved create method
-             attributes: config.attributes,
-             classes: config.classes,
-             styles: config.styles,
-             text: config.text, // Use 'text' for simple text content
-             events: config.events,
-             oncreate: config.oncreate, // Pass the oncreate callback from config
-             // Note: The old 'content' property is replaced by 'text' and 'children'
-        });
-
-        // Recursively build children from the 'children' array
+    
+        // Apply text content
+        if (typeof config.text === 'string') {
+            element.setText(config.text);
+        }
+    
+        // Optional callback
+        if (typeof config.oncreate === 'function') {
+            config.oncreate(element);
+        }
+    
+        // Recursively create children
         if (Array.isArray(config.children)) {
             config.children.forEach(childConfig => {
                 if (typeof childConfig === 'object' && childConfig !== null) {
-                    // If child is a config object, recursively build it
-                    // Pass the current `element` as the parent for the child
-                    // This recursive call handles creation and appending to 'element'
                     this.jsontohtml({ ...childConfig, parent: element });
                 } else if (typeof childConfig === 'string') {
-                    // If child is a string, append it as a text node
-                    element.child.append(childConfig); // Use the append method
+                    element.child.append(childConfig);
                 } else {
-                     console.warn('DomSculptor.jsontohtml: Invalid child configuration type. Expected object or string.', childConfig);
+                    console.warn('DomSculptor.jsontohtml: Invalid child configuration.', childConfig);
                 }
             });
         }
-         // Optional: Add backward compatibility for the original 'content' property
-         // This part replicates the original logic's intent, fixing the string array issue
-         else if (config.content !== undefined) {
-             console.warn("DomSculptor.jsontohtml: Using deprecated 'content' property. Use 'text' for strings and 'children' for array of configs/strings.");
-             if (typeof config.content === 'string') {
-                  element.setText(config.content); // Use the setText method
-             } else if (Array.isArray(config.content)) {
-                  config.content.forEach(item => {
-                       if (typeof item === 'object' && item !== null) {
-                           // Recursive call, parent is the current element
-                           this.jsontohtml({ ...item, parent: element });
-                       } else if (typeof item === 'string') {
-                           // Append string as text node (fixes original overwrite issue)
-                           element.child.append(item); // Use append method
-                       } else {
-                           console.warn('DomSculptor.jsontohtml: Invalid item type in "content" array. Expected object or string.', item);
-                       }
-                  });
-             } else {
-                 console.warn('DomSculptor.jsontohtml: Invalid "content" type. Expected string or array.', config.content);
-             }
-         }
-
-
-        return element; // Return the root element object
+    
+        return element;
     }
+
 
 }
