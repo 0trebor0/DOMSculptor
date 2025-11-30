@@ -176,7 +176,7 @@ class DomSculptor {
         }
     
         // Apply classes
-        if (Array.isArray(config.classes)) {
+        if (Array.isArray(config.class)) {
             element.class.add(...config.classes);
         }
     
