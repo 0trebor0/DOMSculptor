@@ -177,7 +177,7 @@ class DomSculptor {
     
         // Apply classes
         if (Array.isArray(config.class)) {
-            element.class.add(...config.classes);
+            config.class.forEach(c => element.class.add(c));
         }
     
         // Apply text content
