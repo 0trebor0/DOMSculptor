@@ -14,5 +14,9 @@
   },
   "keywords": [],
   "author": "0trebor0",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "webpack": "^5.106.2",
+    "webpack-cli": "^7.0.2"
+  }
 }
