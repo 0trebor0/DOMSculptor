@@ -1,6 +1,6 @@
 # DomSculptor
 
-A lightweight JavaScript library for simplifying DOM manipulation.
+A lightweight JavaScript framework for reactive DOM manipulation — no dependencies, no build step required.
 
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://GitHub.com/0trebor0/DOMSculptor/graphs/commit-activity)
 [![GitHub Stars](https://img.shields.io/github/stars/0trebor0/DOMSculptor?style=social)](https://github.com/0trebor0/DOMSculptor/stargazers)
@@ -8,177 +8,222 @@ A lightweight JavaScript library for simplifying DOM manipulation.
 ## Table of Contents
 
 - [Getting Started](#getting-started)
-- [Usage](#usage)
+- [Creating Elements](#creating-elements)
+- [Wrapping Existing Elements](#wrapping-existing-elements)
+- [Content](#content)
+- [Attributes](#attributes)
+- [Classes](#classes)
+- [Styles](#styles)
+- [Children](#children)
+- [Events](#events)
+- [Reactive State](#reactive-state)
+- [jsontohtml](#jsontohtml)
 - [Contributing](#contributing)
 
 ## Getting Started
 
-### Installation
-
-No installation is required! Include the `DomSculptor` class definition in your JavaScript code.
-
-**Option 1: Copy and Paste**
-
-Copy the entire `DomSculptor` class code and paste it directly into your main JavaScript file or within a `<script>` tag in your HTML.
-
-**Option 2: CDN**
-
-You can also include DomSculptor via CDN. Add the following script tag to your `<head>`:
+**CDN**
 
 ```html
 <script src="https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js"></script>
 ```
 
-**Important:** Ensure your main script comes after this `<script>` tag.
+**ES Module**
 
-## Usage
+```js
+import DomSculptor from './src/index.js';
+```
 
-Create a DomSculptor Instance:
+Create an instance:
 
-```javascript
+```js
 const sculptor = new DomSculptor();
 ```
 
-Create New HTML Elements with `create()`:
+## Creating Elements
 
-```javascript
-// Create a <div> and append it to the <body>
-const myDiv = sculptor.create('div');
-document.body.appendChild(myDiv.html); // Don't forget to append the actual HTML element
+`create(tagName, parent?, callback?)` creates an element and appends it to `parent`. If `parent` is omitted it appends to `<body>`. `parent` can be a CSS selector string, a `DomElement`, or a native `Node`.
+
+```js
+const div = sculptor.create('div');
+const p   = sculptor.create('p', div).setText('Hello world');
+const btn = sculptor.create('button', '#app', el => el.setText('Click me'));
 ```
 
-// Create a <p> and append it to the div
-const myParagraph = sculptor.create('p', myDiv).setText('This is some text.');
+## Wrapping Existing Elements
 
-### Create a <span> and append it to the \`<body>\`:
+`wrap(selectorOrNode)` gives you a `DomElement` around an element already in the page.
 
-```javascript
-const mySpan = sculptor.create('span', document.body).setText('A simple span.');
+```js
+const header = sculptor.wrap('#site-header');
+const nav    = sculptor.wrap(document.querySelector('nav'));
+
+header.class.add('sticky');
+nav.setText('Updated nav');
 ```
 
-### Modify Element Content with \`setText()\`:
+## Content
 
-```javascript
-const heading = sculptor.create('h1', document.body).setText('My Awesome Title');
+```js
+el.setText('Hello');        // sets textContent
+el.getValue();              // returns .value (inputs, selects)
+el.setValue('new value');   // sets .value — chainable
 ```
 
-### Manage Attributes with \`attribute\`:
+## Attributes
 
-```javascript
-const image = sculptor.create('img', document.body)
-    .attribute.set('src', 'image.jpg')
-    .attribute.set('alt', 'An image')
-    .attribute.set({ width: '200', height: '150' })
-    .attribute.remove('width');
-
-const altText = image.attribute.get('alt');
-const hasWidth = image.attribute.has('width');
+```js
+el.attribute.set('id', 'main');
+el.attribute.set({ role: 'button', tabindex: '0' }); // bulk set
+el.attribute.get('id');       // 'main'
+el.attribute.has('role');     // true
+el.attribute.remove('tabindex');
 ```
 
-### Apply Styles with \`setStyle()\`:
+## Classes
 
-```javascript
-const button = sculptor.create('button', document.body)
-    .setText('Click Me')
-    .setStyle('background-color', 'lightblue')
-    .setStyle({ padding: '10px 20px', border: 'none', cursor: 'pointer' });
+```js
+el.class.add('active', 'highlight');
+el.class.remove('highlight');
+el.class.toggle('active');
+el.class.contains('active'); // true
 ```
 
-### Show/Hide Elements with \`hide()\` and \`show()\`:
+## Styles
 
-```javascript
-const message = sculptor.create('div', document.body).setText('Hidden Message').hide();
-// ... later ...
-message.show();
+```js
+el.setStyle('color', 'red');
+el.setStyle({ fontSize: '16px', fontWeight: 'bold' }); // bulk set
+el.hide(); // display: none
+el.show(); // restores display
 ```
 
-### Manage Child Elements with \`child\`:
+## Children
 
-```javascript
-const myList = sculptor.create('ul', document.body)
-    .child.append('First Item (text)')
-    .child.create('li').setText('Second Item')
-    .child.append(sculptor.create('li').setText('Third Item'));
+```js
+el.child.append(otherEl);        // append a DomElement, Node, or string
+el.child.prepend(otherEl);       // insert at the front
+el.child.find('.item');          // querySelector scoped to el, returns DomElement or null
+el.child.create('span');         // create a child element and append it
+el.child.remove();               // remove el from the DOM
 ```
 
-### Work with CSS Classes with \`class\`:
+## Events
 
-```javascript
-const specialDiv = sculptor.create('div', document.body).setText('Special')
-    .class.add('important', 'highlight')
-    .class.remove('highlight');
+```js
+el.on('click', handler);
+el.on({ mouseover: handlerA, mouseout: handlerB }); // bulk
 
-const isImportant = specialDiv.class.contains('important');
+el.once('click', handler);       // fires once, then auto-removes
+
+el.off('click', handler);        // remove specific handler
+el.off('click');                 // remove all click handlers
+
+el.remove();                     // removes element and cleans up all listeners
 ```
 
-### Handle Events with \`on()\` and \`off()\`:
+## Reactive State
 
-```javascript
-const clickableButton = sculptor.create('button', document.body)
-    .setText('Clickable')
-    .on('click', () => alert('Button was clicked!'))
-    .on({
-        mouseover: () => console.log('Mouse over'),
-        mouseout: () => console.log('Mouse out')
-    });
+`sculptor.state(initialValue)` returns a reactive store. All state methods that accept an element auto-unsubscribe when that element is removed.
 
-const alertFunction = () => alert('This alert will be removed.');
-const removableButton = sculptor.create('button', document.body).setText('Removable Alert');
-removableButton.on('click', alertFunction).off('click', alertFunction);
+### Basic usage
 
-const anotherButton = sculptor.create('button', document.body).setText('Multiple Clicks');
-const clickHandler1 = () => console.log('Click 1');
-const clickHandler2 = () => console.log('Click 2');
-anotherButton.on('click', clickHandler1).on('click', clickHandler2).off('click');
+```js
+const count = sculptor.state(0);
+
+count.get();            // 0
+count.set(5);           // triggers subscribers (skips if value unchanged)
+count.update(v => v + 1); // functional update
 ```
 
-### Remove Elements with \`remove()\`:
+### `subscribe(fn)` — run code on change
 
-```javascript
-const removableDiv = sculptor.create('div', document.body).setText('I will be removed.');
-// ... later ...
-removableDiv.remove();
+```js
+const unsub = count.subscribe(v => console.log('count is', v));
+unsub(); // stop listening
 ```
 
-### Build Complex Structures with \`jsontohtml()\`:
+### `bind(element, updater)` — one-way state → DOM
 
-```javascript
-const complexStructure = sculptor.jsontohtml({
+Runs `updater(value, element)` immediately and on every change. Auto-unsubscribes when the element is removed.
+
+```js
+const label = sculptor.create('p', document.body);
+count.bind(label, (v, el) => el.setText(`Count: ${v}`));
+```
+
+### `sync(inputElement, transform?)` — two-way binding
+
+Keeps an input and a state value in sync. Optional `transform` coerces the string input value.
+
+```js
+const name = sculptor.state('');
+const input = sculptor.create('input', document.body);
+name.sync(input);
+
+// For numeric inputs:
+const age = sculptor.state(0);
+age.sync(ageInput, Number);
+```
+
+### `list(container, renderFn)` — reactive list rendering
+
+Renders an array state into a container. Re-renders automatically when the array changes.
+
+```js
+const todos = sculptor.state(['Buy milk', 'Walk dog']);
+const ul = sculptor.create('ul', document.body);
+
+todos.list(ul, (text) => sculptor.create('li').setText(text));
+
+todos.update(items => [...items, 'New item']); // list updates automatically
+```
+
+### Full example — reactive todo list
+
+```js
+const sculptor = new DomSculptor();
+const todos = sculptor.state([]);
+const text  = sculptor.state('');
+
+const input = sculptor.create('input', document.body);
+const btn   = sculptor.create('button', document.body).setText('Add');
+const ul    = sculptor.create('ul', document.body);
+
+text.sync(input);
+
+btn.on('click', () => {
+    if (!text.get().trim()) return;
+    todos.update(items => [...items, text.get()]);
+    text.set('');
+});
+
+todos.list(ul, item => sculptor.create('li').setText(item));
+```
+
+## jsontohtml
+
+Build a DOM tree from a plain config object.
+
+```js
+sculptor.jsontohtml({
     type: 'div',
-    parent: document.getElementById('content-area'),
-    attributes: { id: 'main-container' },
-    styles: { border: '1px solid #ccc', padding: '15px' },
+    parent: '#app',
+    attributes: { id: 'card' },
+    class: ['card', 'elevated'],
+    text: 'Hello',
+    oncreate: (el) => el.setStyle('padding', '16px'),
     children: [
-        { type: 'h2', text: 'Section Title' },
-        { type: 'p', text: 'Some descriptive text.' },
-        {
-            type: 'ul',
-            classes: ['item-list'],
-            children: [
-                { type: 'li', text: 'Item One', classes: ['list-item'] },
-                { type: 'li', text: 'Item Two' }
-            ]
-        },
+        { type: 'h2', text: 'Title' },
+        { type: 'p',  text: 'Body text.' },
         {
             type: 'button',
-            text: 'Click Me',
-            events: { 
-                click: () => alert('Button clicked!') 
-            },
-            oncreate: (buttonElement) => {
-                buttonElement.setStyle({
-                    backgroundColor: 'blue',
-                    color: 'white',
-                    padding: '10px',
-                    border: 'none',
-                    cursor: 'pointer'
-                });
-            }
+            text: 'OK',
+            oncreate: (el) => el.on('click', () => console.log('clicked'))
         }
     ]
 });
 ```
-
 
 ## Contributing
 

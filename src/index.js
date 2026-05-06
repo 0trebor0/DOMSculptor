@@ -1,6 +1,6 @@
 class DomElement {
-    constructor(tagName, sculptor) {
-        this.html = document.createElement(tagName);
+    constructor(tagNameOrNode, sculptor) {
+        this.html = tagNameOrNode instanceof Node ? tagNameOrNode : document.createElement(tagNameOrNode);
         this.children = [];
         this._listeners = {};
 
@@ -27,6 +27,7 @@ class DomElement {
         this.class = {
             add(...values) { if (values.length) el.html.classList.add(...values); return el; },
             remove(...values) { if (values.length) el.html.classList.remove(...values); return el; },
+            toggle(value) { el.html.classList.toggle(value); return el; },
             contains(value) { return el.html.classList.contains(value); }
         };
 
@@ -44,12 +45,31 @@ class DomElement {
                 }
                 return el;
             },
+            prepend(child) {
+                if (child instanceof DomElement) {
+                    el.html.prepend(child.html);
+                    el.children.unshift(child);
+                } else if (child instanceof Node) {
+                    el.html.prepend(child);
+                } else if (typeof child === 'string') {
+                    el.html.prepend(document.createTextNode(child));
+                } else {
+                    console.warn('DomSculptor: child.prepend received invalid child type.', child);
+                }
+                return el;
+            },
+            find(selector) {
+                const node = el.html.querySelector(selector);
+                return node ? new DomElement(node, sculptor) : null;
+            },
             create(name, opts = null) { return sculptor.create(name, el, opts); },
             remove() { el.remove(); }
         };
     }
 
     setText(text) { this.html.textContent = text; return this; }
+    getValue() { return this.html.value; }
+    setValue(value) { this.html.value = value; return this; }
 
     setStyle(property, value) {
         if (typeof property === 'object' && property !== null) {
@@ -80,6 +100,15 @@ class DomElement {
             this._listeners[event].push(callback);
         } else {
             console.warn(`DomSculptor: Invalid arguments for .on('${event}', ${callback})`);
+        }
+        return this;
+    }
+
+    once(event, callback) {
+        if (typeof event === 'string' && typeof callback === 'function') {
+            this.html.addEventListener(event, callback, { once: true });
+        } else {
+            console.warn(`DomSculptor: Invalid arguments for .once()`);
         }
         return this;
     }
@@ -137,6 +166,77 @@ class DomSculptor {
         if (typeof callback === 'function') callback(ele);
 
         return ele;
+    }
+
+    wrap(selectorOrNode) {
+        let node;
+        if (typeof selectorOrNode === 'string') {
+            node = document.querySelector(selectorOrNode);
+            if (!node) { console.warn(`DomSculptor.wrap: Could not find "${selectorOrNode}".`); return null; }
+        } else if (selectorOrNode instanceof Node) {
+            node = selectorOrNode;
+        } else {
+            console.warn('DomSculptor.wrap: Invalid argument.', selectorOrNode);
+            return null;
+        }
+        return new DomElement(node, this);
+    }
+
+    state(initial) {
+        let value = initial;
+        const subscribers = [];
+
+        const autoUnsub = (element, unsub) => {
+            const orig = element.remove.bind(element);
+            element.remove = () => { unsub(); element.remove = orig; orig(); };
+        };
+
+        const store = {
+            get() { return value; },
+            set(next) {
+                if (value === next) return;
+                value = next;
+                subscribers.forEach(fn => fn(value));
+            },
+            update(fn) { store.set(fn(value)); },
+            subscribe(fn) {
+                subscribers.push(fn);
+                return () => {
+                    const i = subscribers.indexOf(fn);
+                    if (i > -1) subscribers.splice(i, 1);
+                };
+            },
+            bind(element, updater) {
+                updater(value, element);
+                const unsub = store.subscribe(v => updater(v, element));
+                autoUnsub(element, unsub);
+                return element;
+            },
+            list(container, renderFn) {
+                let elements = [];
+                const render = (items) => {
+                    elements.forEach(el => el.remove());
+                    container.children = container.children.filter(c => c.html !== null);
+                    elements = items.map((item, i) => {
+                        const el = renderFn(item, i);
+                        container.child.append(el);
+                        return el;
+                    });
+                };
+                render(value);
+                const unsub = store.subscribe(render);
+                autoUnsub(container, unsub);
+                return container;
+            },
+            sync(element, transform = v => v) {
+                element.setValue(value);
+                element.on('input', e => store.set(transform(e.target.value)));
+                const unsub = store.subscribe(v => element.setValue(v));
+                autoUnsub(element, unsub);
+                return element;
+            }
+        };
+        return store;
     }
 
     jsontohtml(config) {
