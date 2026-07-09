@@ -239,6 +239,97 @@ class DomSculptor {
         return store;
     }
 
+    data(initial = {}) {
+        const values = (typeof initial === 'object' && initial !== null) ? { ...initial } : {};
+        const listeners = new Map();
+        const anyListeners = [];
+
+        const notify = (key, next, previous) => {
+            const keyListeners = listeners.get(key) || [];
+            keyListeners.slice().forEach(fn => fn(next, previous, key));
+            anyListeners.slice().forEach(fn => fn(key, next, previous));
+        };
+
+        const api = {
+            get(key = null) {
+                if (key == null) return { ...values };
+                return values[key];
+            },
+            set(key, value) {
+                if (typeof key === 'object' && key !== null) {
+                    for (const name in key) {
+                        if (Object.hasOwnProperty.call(key, name)) api.set(name, key[name]);
+                    }
+                    return api;
+                }
+
+                if (typeof key !== 'string') {
+                    console.warn('DomSculptor.data.set: key must be a string.', key);
+                    return api;
+                }
+
+                const previous = values[key];
+                if (Object.is(previous, value)) return api;
+
+                values[key] = value;
+                notify(key, value, previous);
+                return api;
+            },
+            update(key, fn) {
+                if (typeof fn !== 'function') {
+                    console.warn('DomSculptor.data.update: updater must be a function.');
+                    return api;
+                }
+                return api.set(key, fn(values[key], key));
+            },
+            onChange(key, callback, options = {}) {
+                if (typeof key !== 'string' || typeof callback !== 'function') {
+                    console.warn('DomSculptor.data.onChange: expected a string key and callback function.');
+                    return () => {};
+                }
+
+                if (!listeners.has(key)) listeners.set(key, []);
+                listeners.get(key).push(callback);
+
+                if (options.immediate) callback(values[key], undefined, key);
+
+                return () => api.offChange(key, callback);
+            },
+            offChange(key, callback = null) {
+                if (!listeners.has(key)) return api;
+
+                if (callback) {
+                    const nextListeners = listeners.get(key).filter(fn => fn !== callback);
+                    if (nextListeners.length) listeners.set(key, nextListeners);
+                    else listeners.delete(key);
+                } else {
+                    listeners.delete(key);
+                }
+
+                return api;
+            },
+            onAnyChange(callback, options = {}) {
+                if (typeof callback !== 'function') {
+                    console.warn('DomSculptor.data.onAnyChange: callback must be a function.');
+                    return () => {};
+                }
+
+                anyListeners.push(callback);
+
+                if (options.immediate) {
+                    Object.keys(values).forEach(key => callback(key, values[key], undefined));
+                }
+
+                return () => {
+                    const i = anyListeners.indexOf(callback);
+                    if (i > -1) anyListeners.splice(i, 1);
+                };
+            }
+        };
+
+        return api;
+    }
+
     jsontohtml(config) {
         if (typeof config !== 'object' || config === null) throw new Error('DomSculptor.jsontohtml: config must be a valid object.');
         if (!config.type) throw new Error('DomSculptor.jsontohtml: Must specify "type".');
