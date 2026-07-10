@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>DomSculptor browser tests</title></head>
+<body>
+<pre id="result">running</pre>
+<script type="module">
+import DomSculptor from '../src/index.js';
+
+let assertions = 0;
+let assert = (condition, message) => {
+    assertions++;
+    if (!condition) throw new Error(message);
+};
+
+try {
+    let sculptor = new DomSculptor();
+    let parent = sculptor.create('div');
+    let first = parent.child.create('span').setText('first');
+    let second = parent.child.create('span').setText('second');
+    let third = parent.child.create('span').setText('third');
+
+    assert(parent.childrenOf()[0] === first, 'traversal created a duplicate wrapper');
+    assert(sculptor.wrap(first.html) === first, 'wrap created a duplicate wrapper');
+
+    let nativeParent = sculptor.create('div');
+    let nativeChild = nativeParent.child.create('span');
+    let nativeDestination = sculptor.create('div');
+    nativeDestination.child.append(nativeChild.html);
+    assert(nativeParent.children.length === 0 && nativeDestination.children[0] === nativeChild, 'native-node move left stale ownership');
+
+    let nativeCreated = sculptor.create('em', nativeDestination.html);
+    assert(nativeCreated.parent() === nativeDestination, 'native parent creation lost wrapper ownership');
+
+    let externalSource = sculptor.create('div');
+    let externalDestination = sculptor.create('div');
+    let externalChild = externalSource.child.create('span');
+    externalDestination.html.appendChild(externalChild.html);
+    assert(externalChild.parent() === externalDestination && externalSource.children.length === 0, 'parent traversal did not reconcile an external DOM move');
+
+    let externalSibling = sculptor.create('strong');
+    externalChild.before(externalSibling);
+    assert(externalDestination.children[0] === externalSibling && externalSibling.parent() === externalDestination, 'sibling insertion used stale parent ownership');
+
+    let otherSculptor = new DomSculptor();
+    assert(otherSculptor.wrap(externalChild.html) === externalChild, 'multiple sculptors created duplicate wrappers');
+
+    let frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    let foreignParentNode = frame.contentDocument.createElement('div');
+    frame.contentDocument.body.appendChild(foreignParentNode);
+    let foreignParent = sculptor.wrap(foreignParentNode);
+    let foreignChild = sculptor.create('span', foreignParentNode);
+    assert(foreignParent.html === foreignParentNode && foreignChild.parent() === foreignParent, 'cross-realm nodes were rejected');
+
+    let displayElement = sculptor.create('div').setStyle('display', 'grid');
+    displayElement.hide().hide().show();
+    assert(displayElement.html.style.display === 'grid', 'show did not restore the prior display value');
+
+    let detachedNode = document.createElement('div');
+    let detached = sculptor.wrap(detachedNode);
+    let detachedChild = detached.child.create('span');
+    let mountCalls = 0;
+    detached.onMount(() => mountCalls++);
+    detachedChild.onMount(() => mountCalls++);
+    sculptor.wrap(document.body).child.append(detached);
+    assert(mountCalls === 2, 'mount hooks did not propagate through an attached subtree');
+
+    let textParent = sculptor.create('div');
+    let textChild = textParent.child.create('span');
+    textParent.setText('replacement');
+    assert(textChild.html === null && textParent.children.length === 0, 'setText left stale child wrappers');
+
+    let existingParentNode = document.createElement('div');
+    let existingMiddleNode = document.createElement('section');
+    let existingChildNode = document.createElement('span');
+    existingMiddleNode.appendChild(existingChildNode);
+    existingParentNode.appendChild(existingMiddleNode);
+    document.body.appendChild(existingParentNode);
+    let existingParent = sculptor.wrap(existingParentNode);
+    let existingChild = sculptor.wrap(existingChildNode);
+    existingParent.child.clear();
+    assert(existingChild.html === null, 'clear did not clean a wrapped pre-existing descendant');
+
+    let subtreeParent = sculptor.create('div');
+    let subtreeContainerNode = document.createElement('section');
+    let subtreeChildNode = document.createElement('span');
+    subtreeContainerNode.appendChild(subtreeChildNode);
+    subtreeParent.child.append(subtreeContainerNode);
+    let subtreeChild = sculptor.wrap(subtreeChildNode);
+    subtreeParent.child.replace(subtreeContainerNode, 'replacement');
+    assert(subtreeChild.html === null, 'replace did not clean wrapped descendants of an unwrapped subtree');
+
+    let errorParent = sculptor.create('div');
+    let errorFirst = errorParent.child.create('span');
+    let errorSecond = errorParent.child.create('span');
+    let hookCalls = 0;
+    let hookError = new Error('hook failed');
+    errorFirst.onRemove(element => { hookCalls++; element.remove(); throw hookError; });
+    errorFirst.onRemove(() => hookCalls++);
+    try { errorParent.remove(); } catch (error) { assert(error === hookError, 'remove reported the wrong hook error'); }
+    assert(hookCalls === 2 && errorParent.html === null && errorFirst.html === null && errorSecond.html === null, 'throwing lifecycle hook interrupted cleanup');
+
+    let replaceErrorParent = sculptor.create('div');
+    let replaceErrorPrevious = replaceErrorParent.child.create('span');
+    let replaceErrorNext = sculptor.create('strong');
+    let replaceError = new Error('replace cleanup failed');
+    replaceErrorPrevious.onRemove(() => { throw replaceError; });
+    try { replaceErrorParent.child.replace(replaceErrorPrevious, replaceErrorNext); } catch (error) { assert(error === replaceError, 'replace reported the wrong cleanup error'); }
+    assert(replaceErrorPrevious.html === null && replaceErrorParent.children[0] === replaceErrorNext && replaceErrorParent.html.firstChild === replaceErrorNext.html, 'throwing replace hook left stale ownership');
+
+    parent.child.replace(second, first);
+    assert(parent.html.textContent === 'firstthird', 'same-parent replacement has incorrect DOM order');
+    assert(parent.children.length === 2 && parent.children[0] === first && parent.children[1] === third, 'same-parent ownership is stale');
+
+    let lifecycle = [];
+    let mounted = sculptor.create('section')
+        .onMount(() => lifecycle.push('mount'))
+        .onRemove(() => lifecycle.push('remove'));
+    mounted.remove();
+    assert(lifecycle.join(',') === 'mount,remove', 'lifecycle hooks ran incorrectly');
+
+    let value = sculptor.state('ready');
+    let bound = sculptor.create('input');
+    value.bindValue(bound);
+    value.bindClass(bound, 'active', next => next === 'ready');
+    value.bindAttribute(bound, 'data-state');
+    assert(bound.getValue() === 'ready' && bound.class.contains('active'), 'initial direct binding failed');
+    value.set('done');
+    assert(bound.getValue() === 'done' && !bound.class.contains('active') && bound.attribute.get('data-state') === 'done', 'binding update failed');
+
+    let olderResolve;
+    let request = sculptor.asyncState();
+    let older = request.run(() => new Promise(resolve => { olderResolve = resolve; }));
+    let newer = request.run(() => Promise.resolve('newer'));
+    await newer;
+    olderResolve('older');
+    await older;
+    assert(request.get().data === 'newer', 'older async result overwrote newer state');
+
+    parent.child.clear();
+    assert(parent.html.childNodes.length === 0 && parent.children.length === 0, 'child.clear left stale children');
+
+    document.querySelector('#result').textContent = JSON.stringify({ ok: true, assertions });
+} catch (error) {
+    document.querySelector('#result').textContent = JSON.stringify({ ok: false, message: error.message, stack: error.stack });
+    console.error(error);
+}
+</script>
+</body>
+</html>

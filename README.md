@@ -15,10 +15,14 @@ A lightweight JavaScript framework for reactive DOM manipulation — no dependen
 * [Classes](#classes)
 * [Styles](#styles)
 * [Children](#children)
+* [DOM Traversal](#dom-traversal)
+* [Lifecycle Hooks](#lifecycle-hooks)
 * [Events](#events)
 * [Reactive State](#reactive-state)
+* [Async State](#async-state)
 * [Reactive Data](#reactive-data)
 * [jsontohtml](#jsontohtml)
+* [TypeScript](#typescript)
 * [Contributing](#contributing)
 
 ## Getting Started
@@ -26,7 +30,11 @@ A lightweight JavaScript framework for reactive DOM manipulation — no dependen
 **CDN**
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js"></script>
+<script type="module">
+    import DomSculptor from 'https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js';
+
+    let sculptor = new DomSculptor();
+</script>
 ```
 
 **ES Module**
@@ -38,7 +46,7 @@ import DomSculptor from './src/index.js';
 Create an instance:
 
 ```js
-const sculptor = new DomSculptor();
+let sculptor = new DomSculptor();
 ```
 
 ## Creating Elements
@@ -46,9 +54,9 @@ const sculptor = new DomSculptor();
 `create(tagName, parent?, callback?)` creates an element and appends it to `parent`. If `parent` is omitted it appends to `<body>`. `parent` can be a CSS selector string, a `DomElement`, or a native `Node`.
 
 ```js
-const div = sculptor.create('div');
-const p   = sculptor.create('p', div).setText('Hello world');
-const btn = sculptor.create('button', '#app', el => el.setText('Click me'));
+let div = sculptor.create('div');
+let p   = sculptor.create('p', div).setText('Hello world');
+let btn = sculptor.create('button', '#app', el => el.setText('Click me'));
 ```
 
 ## Wrapping Existing Elements
@@ -56,8 +64,8 @@ const btn = sculptor.create('button', '#app', el => el.setText('Click me'));
 `wrap(selectorOrNode)` gives you a `DomElement` around an element already in the page.
 
 ```js
-const header = sculptor.wrap('#site-header');
-const nav    = sculptor.wrap(document.querySelector('nav'));
+let header = sculptor.wrap('#site-header');
+let nav    = sculptor.wrap(document.querySelector('nav'));
 
 header.class.add('sticky');
 nav.setText('Updated nav');
@@ -105,9 +113,44 @@ el.show(); // restores display
 el.child.append(otherEl);        // append a DomElement, Node, or string
 el.child.prepend(otherEl);       // insert at the front
 el.child.find('.item');          // querySelector scoped to el, returns DomElement or null
+el.child.findAll('.item');       // all matching descendants as DomElement wrappers
 el.child.create('span');         // create a child element and append it
+el.child.replace(oldEl, newEl);  // replace a child
+el.child.clear();                // remove all children and clean up their listeners
 el.child.remove();               // remove el from the DOM
 ```
+
+Elements can also be inserted next to another wrapped element:
+
+```js
+item.before(previousItem);
+item.after(nextItem);
+```
+
+## DOM Traversal
+
+Traversal methods return wrapped `DomElement` instances, so the regular DomSculptor API remains available.
+
+```js
+let parent = item.parent();
+let panel = item.closest('.panel');
+let directChildren = panel.childrenOf();
+let buttons = panel.child.findAll('button');
+```
+
+`parent()` and `closest()` return `null` when no matching node exists.
+
+## Lifecycle Hooks
+
+Use lifecycle hooks for setup and cleanup associated with an element. Both methods are chainable.
+
+```js
+let panel = sculptor.create('section')
+    .onMount(el => console.log('mounted', el.html))
+    .onRemove(el => console.log('removing', el.html));
+```
+
+`onMount()` runs immediately when the element is already attached. Otherwise, it runs when the element is appended through DomSculptor. `onRemove()` runs once before listeners, bindings, children, and the native node are cleaned up.
 
 ## Events
 
@@ -130,7 +173,7 @@ el.remove();                     // removes element and cleans up all listeners
 ### Basic usage
 
 ```js
-const count = sculptor.state(0);
+let count = sculptor.state(0);
 
 count.get();              // 0
 count.set(5);             // triggers subscribers (skips if value unchanged)
@@ -140,7 +183,7 @@ count.update(v => v + 1); // functional update
 ### `subscribe(fn)` — run code on change
 
 ```js
-const unsub = count.subscribe(v => console.log('count is', v));
+let unsub = count.subscribe(v => console.log('count is', v));
 
 count.set(10);
 
@@ -152,9 +195,33 @@ unsub(); // stop listening
 Runs `updater(value, element)` immediately and on every change. Auto-unsubscribes when the element is removed.
 
 ```js
-const label = sculptor.create('p', document.body);
+let label = sculptor.create('p', document.body);
 
 count.bind(label, (v, el) => el.setText(`Count: ${v}`));
+```
+
+### Direct bindings
+
+Common bindings do not require a custom updater:
+
+```js
+let status = sculptor.state('ready');
+let label = sculptor.create('p');
+
+status.bindText(label);
+status.bindAttribute(label, 'data-status');
+status.bindClass(label, 'is-ready', value => value === 'ready');
+status.bindStyle(label, 'color', value => value === 'ready' ? 'green' : 'red');
+status.bindVisible(label, value => value !== 'hidden');
+```
+
+Use `bindValue()` for a one-way value binding. Use `sync()` when user input should also update the state.
+
+```js
+let name = sculptor.state('Ada');
+let input = sculptor.create('input');
+
+name.bindValue(input);
 ```
 
 ### `sync(inputElement, transform?)` — two-way binding
@@ -162,8 +229,8 @@ count.bind(label, (v, el) => el.setText(`Count: ${v}`));
 Keeps an input and a state value in sync. Optional `transform` coerces the string input value.
 
 ```js
-const name = sculptor.state('');
-const input = sculptor.create('input', document.body);
+let name = sculptor.state('');
+let input = sculptor.create('input', document.body);
 
 name.sync(input);
 ```
@@ -171,8 +238,8 @@ name.sync(input);
 For numeric inputs:
 
 ```js
-const age = sculptor.state(0);
-const ageInput = sculptor.create('input', document.body);
+let age = sculptor.state(0);
+let ageInput = sculptor.create('input', document.body);
 
 age.sync(ageInput, Number);
 ```
@@ -182,8 +249,8 @@ age.sync(ageInput, Number);
 Renders an array state into a container. Re-renders automatically when the array changes.
 
 ```js
-const todos = sculptor.state(['Buy milk', 'Walk dog']);
-const ul = sculptor.create('ul', document.body);
+let todos = sculptor.state(['Buy milk', 'Walk dog']);
+let ul = sculptor.create('ul', document.body);
 
 todos.list(ul, text => sculptor.create('li').setText(text));
 
@@ -193,13 +260,13 @@ todos.update(items => [...items, 'New item']); // list updates automatically
 ### Full example — reactive todo list
 
 ```js
-const sculptor = new DomSculptor();
-const todos = sculptor.state([]);
-const text  = sculptor.state('');
+let sculptor = new DomSculptor();
+let todos = sculptor.state([]);
+let text  = sculptor.state('');
 
-const input = sculptor.create('input', document.body);
-const btn   = sculptor.create('button', document.body).setText('Add');
-const ul    = sculptor.create('ul', document.body);
+let input = sculptor.create('input', document.body);
+let btn   = sculptor.create('button', document.body).setText('Add');
+let ul    = sculptor.create('ul', document.body);
 
 text.sync(input);
 
@@ -212,6 +279,25 @@ btn.on('click', () => {
 
 todos.list(ul, item => sculptor.create('li').setText(item));
 ```
+
+## Async State
+
+`asyncState(initialData?)` tracks the status, data, and error for asynchronous work. It accepts a function or Promise and ignores late state updates from older runs.
+
+```js
+let users = sculptor.asyncState([]);
+
+users.subscribe(({ status, data, error }) => {
+    if (status === 'loading') console.log('Loading...');
+    if (status === 'success') console.log(data);
+    if (status === 'error') console.error(error);
+});
+
+await users.run(() => fetch('/api/users').then(response => response.json()));
+await users.retry();
+```
+
+Snapshots use the statuses `idle`, `loading`, `success`, and `error`. `run()` and `retry()` return Promises and reject when the task fails.
 
 ## Reactive Data
 
@@ -230,7 +316,7 @@ watch('color', () => {
 With DomSculptor, you can write:
 
 ```js
-const data = sculptor.data({
+let data = sculptor.data({
     color: 'red'
 });
 
@@ -246,7 +332,7 @@ data.set('color', 'blue');
 Pass a key to read one value.
 
 ```js
-const data = sculptor.data({
+let data = sculptor.data({
     color: 'red',
     size: 'large'
 });
@@ -288,7 +374,7 @@ Each changed key triggers its own listeners.
 ### `update(key, fn)` — update from the previous value
 
 ```js
-const data = sculptor.data({
+let data = sculptor.data({
     count: 0
 });
 
@@ -300,7 +386,7 @@ data.update('count', value => value + 1);
 Runs `callback(next, previous, key)` when a specific key changes.
 
 ```js
-const unsub = data.onChange('color', (next, previous, key) => {
+let unsub = data.onChange('color', (next, previous, key) => {
     console.log(`${key}: ${previous} → ${next}`);
 });
 
@@ -360,14 +446,14 @@ data.onAnyChange((key, next) => {
 ### Full example — theme switcher
 
 ```js
-const sculptor = new DomSculptor();
+let sculptor = new DomSculptor();
 
-const data = sculptor.data({
+let data = sculptor.data({
     color: 'red'
 });
 
-const button = sculptor.create('button', document.body).setText('Change color');
-const preview = sculptor.create('div', document.body).setText('Preview');
+let button = sculptor.create('button', document.body).setText('Change color');
+let preview = sculptor.create('div', document.body).setText('Preview');
 
 data.onChange('color', color => {
     preview.setStyle('color', color);
@@ -400,6 +486,17 @@ sculptor.jsontohtml({
         }
     ]
 });
+```
+
+## TypeScript
+
+DomSculptor remains a JavaScript library. TypeScript declarations are included only to provide optional editor completion and type checking; no TypeScript compiler or build step is required for normal JavaScript usage.
+
+```js
+import DomSculptor from 'domsculptor';
+
+let sculptor = new DomSculptor();
+let message = sculptor.create('p').setText('Still plain JavaScript');
 ```
 
 ## Contributing

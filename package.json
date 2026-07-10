@@ -2,11 +2,13 @@
   "name": "domsculptor",
   "version": "1.0.6",
   "description": "Create dom element",
+  "type": "module",
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "homepage": "https://github.com/0trebor0/DOMSculptor",
   "private": false,
   "scripts": {
-    "build": "webpack --config webpack.config.js"
+    "build": "webpack --config webpack.config.cjs"
   },
   "repository": {
     "type": "git",

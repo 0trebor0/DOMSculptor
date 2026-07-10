@@ -1,5 +1,9 @@
 CNAME
 index.html
-webpack.config.js
+webpack.config.cjs
 package-lock.json
 node_modules
+.claude/
+AGENTS.md
+Push.bat
+test/

@@ -1,6 +1,6 @@
-/node_modules
-/dist
-package-lock.json
-.claude/
+/node_modules/
+/dist/
+/.claude/
 .env
-.claude/settings.json
+.env.*
+!.env.example
