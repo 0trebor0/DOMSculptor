@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Large-project architecture · DOMSculptor</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <nav><a href="./index.html">DOMSculptor</a><a href="./examples.html">Examples</a></nav>
+  <main>
+    <header>
+      <p class="eyebrow">Large-project architecture</p>
+      <h1>Organise by feature, own every lifetime.</h1>
+      <p>DOMSculptor remains a DOM toolkit. Application boundaries stay explicit and browser APIs remain available.</p>
+    </header>
+
+    <section>
+      <h2>Recommended structure</h2>
+      <pre><code>app/
+  bootstrap.js
+  routes.js
+  services/
+    session.js
+    users.js
+  features/
+    account/
+      component.js
+      state.js
+      test.js
+  shared/
+    components/
+    accessibility/</code></pre>
+      <p>Each feature exports a component factory. Route scopes own feature components, effects, listeners, and pending async work. Services expose browser-oriented functions or signals without importing view code.</p>
+    </section>
+
+    <section>
+      <h2>Routing with browser APIs</h2>
+      <pre><code>let active = null;
+
+function navigate(url) {
+  history.pushState(null, "", url);
+  active?.dispose();
+  active = routes.get(location.pathname)();
+  sculptor.mount(active, "#app");
+}
+
+addEventListener("popstate", () =&gt; navigate(location.href));</code></pre>
+      <p>Dispose the previous route before mounting the next. Keep route matching, guards, and URL parsing outside the runtime.</p>
+    </section>
+
+    <section>
+      <h2>Lazy feature loading</h2>
+      <pre><code>import { createLazyComponent } from "domsculptor/lazy";
+
+const Reports = createLazyComponent(
+  sculptor,
+  () =&gt; import("./features/reports/component.js"),
+  { loading: "Loading reports…" }
+);</code></pre>
+      <p>The optional entry uses native dynamic imports, aborts its loader signal on disposal, exposes loading/success/error status, and disposes the loaded child component.</p>
+    </section>
+
+    <section>
+      <h2>Error boundaries</h2>
+      <pre><code>const SafeAccount = sculptor.errorBoundary(
+  Account,
+  (error) =&gt; ({
+    root: sculptor.tree({ tag: "p", text: "Account could not be opened." }),
+    api: { error }
+  })
+);</code></pre>
+      <p>Boundaries clean failed component-construction scopes before creating fallback UI. Report the original error from the fallback API or application telemetry.</p>
+    </section>
+
+    <section>
+      <h2>Testing</h2>
+      <pre><code>import { createTestHarness } from "domsculptor/testing";
+
+const test = createTestHarness();
+const view = Account({ service: fakeService });
+test.mount(view);
+test.flush();
+test.assertClean();
+test.dispose();</code></pre>
+      <p>The harness provides an isolated development runtime, fixture root, deterministic flushing, captured warnings, and component-leak assertions.</p>
+    </section>
+
+    <section>
+      <h2>Accessibility patterns</h2>
+      <ul>
+        <li>Dialogs: move focus inside on mount, restore it on dispose, and handle Escape.</li>
+        <li>Forms: associate labels and errors, focus the validation summary, and bind <code>aria-invalid</code>.</li>
+        <li>Async regions: announce completion through a polite native live region.</li>
+        <li>Menus and tabs: use roving tabindex and native keyboard events.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Service boundaries</h2>
+      <p>Pass services through component props or minimal context keys. Fetch, WebSocket, authentication, validation, and caching policies remain application code. Accept an <code>AbortSignal</code> for every cancellable operation.</p>
+    </section>
+  </main>
+</body>
+</html>

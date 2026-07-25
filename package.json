@@ -1,24 +1,83 @@
 {
   "name": "domsculptor",
-  "version": "1.0.6",
-  "description": "Create dom element",
+  "version": "2.0.0",
+  "description": "A tiny, dependency-free, client-side reactive DOM toolkit for widgets, browser extensions, embedded interfaces, progressive enhancement, and small applications.",
   "type": "module",
   "main": "./src/index.js",
-  "types": "./src/index.d.ts",
+  "module": "./src/index.js",
+  "types": "./types/index.d.ts",
+  "browser": "./dist/domsculptor.esm.min.js",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./src/index.js",
+      "default": "./src/index.js"
+    },
+    "./browser": {
+      "types": "./types/browser.d.ts",
+      "import": "./dist/domsculptor.esm.min.js",
+      "default": "./dist/domsculptor.esm.min.js"
+    },
+    "./testing": {
+      "types": "./testing/index.d.ts",
+      "import": "./testing/index.js",
+      "default": "./testing/index.js"
+    },
+    "./lazy": {
+      "types": "./lazy/index.d.ts",
+      "import": "./lazy/index.js",
+      "default": "./lazy/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "types",
+    "testing",
+    "lazy",
+    "dist",
+    "benchmark",
+    "docs",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
   "homepage": "https://github.com/0trebor0/DOMSculptor",
   "private": false,
   "scripts": {
-    "build": "webpack --config webpack.config.cjs"
+    "test": "node --test test/index.test.mjs test/docs.test.mjs test/security.test.mjs",
+    "test:browser": "node test/browser.test.mjs",
+    "test:types": "tsc --noEmit",
+    "test:package": "node test/package.test.mjs",
+    "build": "webpack --config webpack.config.cjs",
+    "benchmark": "node benchmark/run.mjs",
+    "size": "node test/size.test.mjs",
+    "lint": "node --check src/index.js && node --check testing/index.js && node --check lazy/index.js && node --check benchmark/run.mjs && node --check test/index.test.mjs && node --check test/docs.test.mjs && node --check test/security.test.mjs && node --check test/browser.test.mjs && node --check test/size.test.mjs && node --check test/package.test.mjs",
+    "check": "npm run lint && npm test && npm run test:types && npm run build && npm run size && npm run test:package"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/0trebor0/DOMSculptor.git"
   },
-  "keywords": [],
+  "keywords": [
+    "dom",
+    "reactive",
+    "signals",
+    "browser",
+    "widgets",
+    "progressive-enhancement",
+    "dependency-free"
+  ],
   "author": "0trebor0",
-  "license": "ISC",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/0trebor0/DOMSculptor/issues"
+  },
   "devDependencies": {
-    "webpack": "^5.106.2",
-    "webpack-cli": "^7.0.2"
+    "playwright": "^1.62.0",
+    "typescript": "^5.9.3",
+    "webpack": "^5.109.0",
+    "webpack-cli": "^7.2.1"
   }
 }

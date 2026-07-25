@@ -1,37 +1,76 @@
 import DomSculptor, {
-    type AsyncSnapshot,
+    asyncState,
+    computed,
+    createDevSculptor,
+    errorBoundary,
+    signal,
+    store,
+    tree,
     type AsyncState,
-    type DataStore,
-    type DomElement,
-    type State
-} from '../src/index.js';
+    type ComponentInstance,
+    type DomElement
+} from 'domsculptor';
+import { createTestHarness } from 'domsculptor/testing';
+import { createLazyComponent } from 'domsculptor/lazy';
+import BrowserDomSculptor from 'domsculptor/browser';
+// @ts-expect-error the prebuilt browser entry intentionally exposes only the default runtime
+import { signal as browserSignal } from 'domsculptor/browser';
 
 let sculptor = new DomSculptor();
-let parent: DomElement = sculptor.create('div');
-let child = parent.child.create('span').setText('hello');
-let found: DomElement | null = parent.child.find('span');
-let all: DomElement[] = parent.child.findAll('span');
+let browserSculptor = new BrowserDomSculptor();
+let input = sculptor.create('input');
+input.html?.select();
+// @ts-expect-error input elements do not expose canvas methods
+input.html?.getContext('2d');
 
-parent.child.append(child).child.prepend('text');
-parent.child.replace(child, sculptor.create('strong'));
-parent.child.clear();
-parent.onMount(element => element.class.add('mounted'));
-parent.onRemove(element => element.class.remove('mounted'));
+let clickTarget = sculptor.create('button');
+clickTarget.on('click', event => event.clientX);
 
-let count: State<number> = sculptor.state(0);
-count.bindText(parent, value => String(value));
-count.bindAttribute(parent, 'data-count');
-count.bindClass(parent, 'active', value => value > 0);
-count.bindStyle(parent, 'opacity', value => String(value));
-count.bindVisible(parent, value => value > 0);
+let count = signal(0);
+let doubled = computed(() => count.get() * 2, [count]);
+let form = store({ name: 'Ada', age: 36 });
+form.set('age', 37);
+// @ts-expect-error age must remain a number
+form.set('age', 'old');
+// @ts-expect-error unknown store key
+form.set('missing', true);
 
-let request: AsyncState<string> = sculptor.asyncState<string>();
-request.subscribe((snapshot: AsyncSnapshot<string>) => snapshot.status);
-request.run(async () => 'done');
-request.retry();
+let view = tree({ tag: 'section', class: ['panel', 'active'], children: ['safe', input] });
+// @ts-expect-error the tree API uses class, not classes
+tree({ tag: 'section', classes: ['invalid'] });
+let request: AsyncState<string> = asyncState<string>();
+request.run(async ({ signal: abortSignal }) => abortSignal.aborted ? 'cancelled' : 'done');
 
-let data: DataStore = sculptor.data({ count: 0 });
-data.set('count', 1).update('count', value => Number(value) + 1);
+let Counter = sculptor.component((props: { initial: number }) => ({
+    root: sculptor.create('button'),
+    api: { count: sculptor.signal(props.initial) }
+}));
+let SafeCounter = errorBoundary(Counter, () => sculptor.create('p'));
+let counter: ComponentInstance<{ count: ReturnType<typeof sculptor.signal<number>> }> =
+    SafeCounter({ initial: 1 });
+// @ts-expect-error required component props
+SafeCounter();
 
-void found;
-void all;
+let dev = createDevSculptor();
+dev.reportLeaks();
+let harness = createTestHarness(null);
+harness.mount(sculptor.create('div'));
+harness.flush().dispose();
+
+let LazyAccount = createLazyComponent(
+    sculptor,
+    async () => Counter,
+    { loading: 'Loading account' }
+);
+let lazyAccount = LazyAccount({ initial: 1 });
+lazyAccount.api.status.get().status;
+
+let element: DomElement<HTMLInputElement> = input;
+void doubled;
+void form;
+void view;
+void request;
+void counter;
+void element;
+void browserSculptor;
+void browserSignal;

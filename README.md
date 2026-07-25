@@ -1,6 +1,6 @@
-# DomSculptor
+# DOMSculptor
 
-A lightweight JavaScript framework for reactive DOM manipulation — no dependencies, no build step required.
+DOMSculptor is a tiny, dependency-free, client-side reactive DOM toolkit for widgets, browser extensions, embedded interfaces, progressive enhancement, and small applications. It provides direct DOM control without JSX, a compiler, a virtual DOM, or a required build step.
 
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://GitHub.com/0trebor0/DOMSculptor/graphs/commit-activity)
 [![GitHub Stars](https://img.shields.io/github/stars/0trebor0/DOMSculptor?style=social)](https://github.com/0trebor0/DOMSculptor/stargazers)
@@ -21,42 +21,96 @@ A lightweight JavaScript framework for reactive DOM manipulation — no dependen
 * [Reactive State](#reactive-state)
 * [Async State](#async-state)
 * [Reactive Data](#reactive-data)
-* [jsontohtml](#jsontohtml)
-* [TypeScript](#typescript)
+* [Tree creation](#tree-creation)
+* [Conditional rendering](#conditional-rendering)
+* [Components and disposal scopes](#components-and-disposal-scopes)
 * [Contributing](#contributing)
 
 ## Getting Started
 
-**CDN**
+### npm
+
+```sh
+npm install domsculptor
+```
+
+```js
+import DomSculptor from 'domsculptor';
+
+let sculptor = new DomSculptor();
+```
+
+### Browser ES module
 
 ```html
 <script type="module">
-    import DomSculptor from 'https://cdn.jsdelivr.net/gh/0trebor0/DOMSculptor@master/src/index.js';
+    import DomSculptor from 'https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js';
 
     let sculptor = new DomSculptor();
 </script>
 ```
 
-**ES Module**
+The version is pinned deliberately. Do not import production code from a mutable repository branch.
 
-```js
-import DomSculptor from './src/index.js';
+### Script tag
+
+```html
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.min.js"></script>
+<script>
+    let sculptor = new DomSculptor();
+    sculptor.create('button', '#app').setText('Hello DOMSculptor');
+</script>
 ```
 
-Create an instance:
+### One-file example
 
-```js
-let sculptor = new DomSculptor();
+Save this as an HTML file and open it in a browser:
+
+```html
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>DOMSculptor counter</title>
+<button id="counter"></button>
+<script type="module">
+    import DomSculptor from 'https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js';
+
+    let sculptor = new DomSculptor();
+    let count = sculptor.state(0);
+    let button = sculptor.wrap('#counter');
+
+    count.bindText(button, value => `Count: ${value}`);
+    button.on('click', () => count.update(value => value + 1));
+    window.addEventListener('pagehide', () => {
+        button.dispose();
+        count.dispose();
+    }, { once: true });
+</script>
 ```
 
 ## Creating Elements
 
-`create(tagName, parent?, callback?)` creates an element and appends it to `parent`. If `parent` is omitted it appends to `<body>`. `parent` can be a CSS selector string, a `DomElement`, or a native `Node`.
+`create(tagName, parent?, callback?)` creates a detached element. Pass a parent
+to mount immediately, or call `mount()` after composing the subtree. A parent can
+be a CSS selector string, a `DomElement`, or a native `Node`.
 
 ```js
 let div = sculptor.create('div');
 let p   = sculptor.create('p', div).setText('Hello world');
 let btn = sculptor.create('button', '#app', el => el.setText('Click me'));
+```
+
+`createDetached()` remains as an explicit alias. `createIn()` is the concise
+immediate-insertion form.
+
+```js
+let card = sculptor.create('article');
+sculptor.mount(card, '#app');
+sculptor.unmount(card);       // detach without cleanup
+sculptor.mount(card, '#app'); // mount the same live element again
+
+let badge = sculptor.createIn('#app', 'span').setText('New');
 ```
 
 ## Wrapping Existing Elements
@@ -71,12 +125,27 @@ header.class.add('sticky');
 nav.setText('Updated nav');
 ```
 
+`adopt(node)` is the strict node-only form and throws for invalid input.
+
 ## Content
 
 ```js
 el.setText('Hello');        // sets textContent
 el.getValue();              // returns .value (inputs, selects)
-el.setValue('new value');   // sets .value — chainable
+el.setValue('new value');   // sets .value and remains chainable
+el.focus({ preventScroll: true });
+el.blur();
+el.isFocused();
+```
+
+Targeted reactive nodes update only their own content without clearing unrelated
+descendants:
+
+```js
+el.text(label);
+el.attr('aria-expanded', open);
+el.classToggle('active', open);
+el.styleValue('opacity', opacity);
 ```
 
 ## Attributes
@@ -142,42 +211,112 @@ let buttons = panel.child.findAll('button');
 
 ## Lifecycle Hooks
 
-Use lifecycle hooks for setup and cleanup associated with an element. Both methods are chainable.
+Lifecycle hooks distinguish temporary detachment from permanent cleanup. All
+hook methods are chainable.
 
 ```js
 let panel = sculptor.create('section')
     .onMount(el => console.log('mounted', el.html))
-    .onRemove(el => console.log('removing', el.html));
+    .onUnmount(el => console.log('temporarily detached', el.html))
+    .onDispose(el => console.log('permanently disposing', el.html));
 ```
 
-`onMount()` runs immediately when the element is already attached. Otherwise, it runs when the element is appended through DomSculptor. `onRemove()` runs once before listeners, bindings, children, and the native node are cleaned up.
+`onMount()` runs once per element lifetime: immediately when already connected,
+or on its first DOMSculptor mount. `onUnmount()` runs on every explicit temporary
+unmount, child before parent. `onDispose()` runs once during permanent cleanup,
+also child before parent. Every hook is attempted when several throw, with
+multiple failures reported as `AggregateError`.
+
+`onRemove()` and `remove()` remain compatibility aliases for `onDispose()` and
+`dispose()`. Moving an element between parents does not dispose or invoke
+temporary-unmount hooks.
 
 ## Events
 
 ```js
 el.on('click', handler);
+el.on('scroll', handler, { passive: true });
+el.on('click', handler, { once: true, capture: false, signal: controller.signal });
 el.on({ mouseover: handlerA, mouseout: handlerB }); // bulk
+el.on('click', '.delete-button', (event, matched) => {
+    matched.remove();
+}); // delegation
 
 el.once('click', handler);       // fires once, then auto-removes
 
 el.off('click', handler);        // remove specific handler
 el.off('click');                 // remove all click handlers
 
-el.remove();                     // removes element and cleans up all listeners
+el.dispose();                    // permanent recursive cleanup
 ```
 
 ## Reactive State
 
-`sculptor.state(initialValue)` returns a reactive store for a single value. All state methods that accept an element auto-unsubscribe when that element is removed.
+`sculptor.signal(initialValue)` returns a reactive signal. `state()` remains as a compatibility alias. All methods that bind an element auto-unsubscribe when that element is removed.
 
 ### Basic usage
 
 ```js
-let count = sculptor.state(0);
+let count = sculptor.signal(0);
 
 count.get();              // 0
 count.set(5);             // triggers subscribers (skips if value unchanged)
 count.update(v => v + 1); // functional update
+```
+
+Signals notify ordinary subscribers synchronously. DOM bindings and effects are
+deduplicated into one microtask, so several synchronous writes produce one DOM
+pass. Use `sculptor.flush()` when a test needs to apply queued work immediately.
+
+`subscribe()` validates its callback and supports immediate delivery and native
+abort cleanup:
+
+```js
+let controller = new AbortController();
+let unsubscribe = count.subscribe(value => console.log(value), {
+    immediate: true,
+    signal: controller.signal
+});
+
+controller.abort();
+unsubscribe(); // safe to call again
+count.dispose();
+```
+
+### Computed values
+
+Computed values use an explicit dependency list and skip notifications when the
+derived result is unchanged:
+
+```js
+let firstName = sculptor.signal('Ada');
+let lastName = sculptor.signal('Lovelace');
+let fullName = sculptor.computed(
+    () => `${firstName.get()} ${lastName.get()}`,
+    [firstName, lastName]
+);
+
+fullName.get();
+fullName.dispose();
+```
+
+### Effects and batching
+
+Effects run once immediately, then once per queued rendering pass. A returned
+cleanup function runs before the next execution and when the effect is stopped.
+
+```js
+let stop = sculptor.effect(() => {
+    document.title = fullName.get();
+    return () => console.log('effect cleanup');
+}, [fullName]);
+
+sculptor.batch(() => {
+    firstName.set('Grace');
+    lastName.set('Hopper');
+});
+
+stop();
 ```
 
 ### `subscribe(fn)` — run code on change
@@ -213,6 +352,7 @@ status.bindAttribute(label, 'data-status');
 status.bindClass(label, 'is-ready', value => value === 'ready');
 status.bindStyle(label, 'color', value => value === 'ready' ? 'green' : 'red');
 status.bindVisible(label, value => value !== 'hidden');
+status.bindProperty(label, 'hidden', value => value === 'hidden');
 ```
 
 Use `bindValue()` for a one-way value binding. Use `sync()` when user input should also update the state.
@@ -224,38 +364,64 @@ let input = sculptor.create('input');
 name.bindValue(input);
 ```
 
-### `sync(inputElement, transform?)` — two-way binding
+### Native form binding
 
-Keeps an input and a state value in sync. Optional `transform` coerces the string input value.
+Calling `bind()` without an updater creates an element-aware two-way binding.
+It supports text inputs, textareas, selects, multiple selects, boolean and array
+checkboxes, radios, numbers, custom accessors, and IME composition.
 
 ```js
-let name = sculptor.state('');
+let name = sculptor.signal('');
 let input = sculptor.create('input', document.body);
 
-name.sync(input);
+name.bind(input);
 ```
 
 For numeric inputs:
 
 ```js
-let age = sculptor.state(0);
+let age = sculptor.signal(0);
 let ageInput = sculptor.create('input', document.body);
+ageInput.html.type = 'number';
 
-age.sync(ageInput, Number);
+age.bind(ageInput); // number inputs produce numbers
 ```
 
-### `list(container, renderFn)` — reactive list rendering
-
-Renders an array state into a container. Re-renders automatically when the array changes.
+`sync(input, transform?)` remains as an alias for compatibility. Binding options
+can select an event, parser, checkbox-group behavior, or custom accessors.
 
 ```js
-let todos = sculptor.state(['Buy milk', 'Walk dog']);
+quantity.bind(numberInput, { parse: Number });
+tags.bind(checkbox, { group: true });
+query.bind(customInput, {
+    event: 'change',
+    get: node => node.value,
+    set: (node, value) => { node.value = value; }
+});
+```
+
+### Keyed list rendering
+
+Use keyed rendering when rows have stable identities. Existing keyed nodes are
+moved and updated, new keys are created, and removed keys alone are disposed.
+This preserves input focus, selection, and row-local browser state.
+
+```js
+let todos = sculptor.signal([
+    { id: 1, text: 'Buy milk' },
+    { id: 2, text: 'Walk dog' }
+]);
 let ul = sculptor.create('ul', document.body);
 
-todos.list(ul, text => sculptor.create('li').setText(text));
-
-todos.update(items => [...items, 'New item']); // list updates automatically
+todos.list(ul, {
+    key: todo => todo.id,
+    render: todo => sculptor.createDetached('li').setText(todo.text),
+    update: (row, todo) => row.setText(todo.text)
+});
 ```
+
+Duplicate keys throw before the DOM is changed. The legacy render-function form
+is still supported but performs a full replacement.
 
 ### Full example — reactive todo list
 
@@ -282,7 +448,9 @@ todos.list(ul, item => sculptor.create('li').setText(item));
 
 ## Async State
 
-`asyncState(initialData?)` tracks the status, data, and error for asynchronous work. It accepts a function or Promise and ignores late state updates from older runs.
+`asyncState(initialData?)` tracks the status, data, and error for asynchronous
+work. Starting a new run aborts the previous run by default and older results
+cannot overwrite newer state.
 
 ```js
 let users = sculptor.asyncState([]);
@@ -293,15 +461,22 @@ users.subscribe(({ status, data, error }) => {
     if (status === 'error') console.error(error);
 });
 
-await users.run(() => fetch('/api/users').then(response => response.json()));
+await users.run(({ signal }) =>
+    fetch('/api/users', { signal }).then(response => response.json())
+);
 await users.retry();
+users.cancel();
+users.reset();
 ```
 
-Snapshots use the statuses `idle`, `loading`, `success`, and `error`. `run()` and `retry()` return Promises and reject when the task fails.
+Snapshots use `idle`, `loading`, `refreshing`, `success`, and `error`.
+`refreshing` means existing data is retained while a new request is running.
+`run()` and `retry()` return Promises and reject when work fails or is aborted.
 
 ## Reactive Data
 
-`sculptor.data(initialObject?)` returns a small reactive data object for named values. Use it when you want to watch fields like `color`, `theme`, `open`, or `activeTab`.
+`sculptor.store(initialObject?)` returns a strongly typed, disposable reactive
+object for named values. `data()` remains as a compatibility alias.
 
 This is useful when you want something similar to:
 
@@ -316,7 +491,7 @@ watch('color', () => {
 With DomSculptor, you can write:
 
 ```js
-let data = sculptor.data({
+let data = sculptor.store({
     color: 'red'
 });
 
@@ -325,6 +500,7 @@ data.onChange('color', (next, previous) => {
 });
 
 data.set('color', 'blue');
+data.dispose();
 ```
 
 ### `get(key?)` — read data
@@ -464,41 +640,197 @@ button.on('click', () => {
 });
 ```
 
-## jsontohtml
+## Tree creation
 
-Build a DOM tree from a plain config object.
+`tree()` builds a safe, detached DOM hierarchy. Text uses text nodes, including
+reactive text, and raw HTML is never accepted implicitly.
 
 ```js
-sculptor.jsontohtml({
-    type: 'div',
-    parent: '#app',
+let card = sculptor.tree({
+    tag: 'article',
     attributes: { id: 'card' },
     class: ['card', 'elevated'],
-    text: 'Hello',
-    oncreate: (el) => el.setStyle('padding', '16px'),
     children: [
-        { type: 'h2', text: 'Title' },
-        { type: 'p',  text: 'Body text.' },
+        { tag: 'h2', text: titleSignal },
+        { tag: 'p', text: 'Body text.' },
         {
-            type: 'button',
+            tag: 'button',
             text: 'OK',
-            oncreate: (el) => el.on('click', () => console.log('clicked'))
+            on: { click: () => console.log('clicked') }
         }
     ]
 });
+
+sculptor.mount(card, '#app');
+```
+
+DOMSculptor 2.0 removes the deprecated `jsontohtml()` compatibility API.
+Use detached `tree()` configurations for new and migrated code.
+
+## Conditional rendering
+
+`when()` switches branches in one queued rendering pass. Static branches are
+temporarily unmounted and factory branches are disposed unless `preserve` is
+enabled.
+
+```js
+let stop = sculptor.when(isOpen, panel, {
+    fallback: () => sculptor.tree({ tag: 'p', text: 'Closed' })
+});
+
+stop(); // unsubscribe and dispose managed branches
+```
+
+## Components and disposal scopes
+
+A component is a factory running inside a disposal scope. It has no hidden
+renderer: the factory returns one root, an optional public API, and optional
+custom cleanup. Elements, signals, computed values, effects, and async state
+created inside the scope are disposed together.
+
+```js
+let Counter = sculptor.component((props, context) => {
+    let count = sculptor.signal(props.initial ?? 0);
+    let root = sculptor.tree({
+        tag: 'section',
+        children: [
+            { tag: 'span', text: count },
+            {
+                tag: 'button',
+                text: '+',
+                on: { click: () => count.update(value => value + 1) }
+            }
+        ]
+    });
+
+    return {
+        root,
+        api: { count },
+        dispose() {
+            // optional application cleanup
+        }
+    };
+});
+
+let counter = Counter({ initial: 2 });
+sculptor.mount(counter, '#app');
+counter.dispose();
+```
+
+Scopes are also available directly. Cleanups run once in reverse registration
+order, and every cleanup is attempted even when another throws.
+
+```js
+let scope = sculptor.createScope();
+
+scope.run(() => {
+    let query = sculptor.signal('');
+    sculptor.effect(() => {
+        // ...
+    }, [query]);
+});
+
+scope.track(() => console.log('custom cleanup'));
+scope.dispose();
+```
+
+Minimal hierarchical contexts carry themes or shared services without a
+dependency-injection container:
+
+```js
+let themeKey = sculptor.createContextKey('theme');
+let context = sculptor.createContext().set(themeKey, 'dark');
+let childContext = context.child();
+
+childContext.get(themeKey); // "dark"
+```
+
+## Error boundaries
+
+Wrap component construction when a feature needs deterministic fallback UI.
+Failed component scopes are cleaned before the fallback is created:
+
+```js
+let SafeAccount = sculptor.errorBoundary(
+    Account,
+    error => ({
+        root: sculptor.create('p').setText('Account could not be opened.'),
+        api: { error }
+    })
+);
 ```
 
 ## TypeScript
 
-DomSculptor remains a JavaScript library. TypeScript declarations are included only to provide optional editor completion and type checking; no TypeScript compiler or build step is required for normal JavaScript usage.
+Declarations are published from `types/index.d.ts` while the JavaScript
+implementation remains entirely in `src/index.js`. Native tag names, events,
+stores, component props and APIs, contexts, async state, and tree
+configuration are typed.
+
+## Testing
+
+The optional test entry stays out of production bundles:
 
 ```js
-import DomSculptor from 'domsculptor';
+import { createTestHarness } from 'domsculptor/testing';
 
-let sculptor = new DomSculptor();
-let message = sculptor.create('p').setText('Still plain JavaScript');
+let test = createTestHarness();
+let view = Account({ service: fakeService });
+test.mount(view);
+test.flush();
+test.assertClean();
+test.dispose();
 ```
+
+See the [large-project architecture guide](./docs/large-projects.html) for
+feature boundaries, routing cleanup, native dynamic imports, service design,
+and accessibility patterns.
+
+Lazy features are available without increasing the main runtime:
+
+```js
+import { createLazyComponent } from 'domsculptor/lazy';
+
+let Reports = createLazyComponent(
+    sculptor,
+    () => import('./features/reports.js'),
+    { loading: 'Loading reports…' }
+);
+```
+
+## Development diagnostics
+
+The main entry exports an opt-in development constructor that reports structured
+ownership, disposal, subscription, list-key, parent/child, and binding
+diagnostics. The default constructor remains silent.
+
+```js
+import { createDevSculptor } from 'domsculptor';
+
+let sculptor = createDevSculptor({
+    onWarning: warning => console.warn(warning.code, warning.message)
+});
+
+// Call at a route or test boundary to report undisposed component scopes.
+sculptor.reportLeaks();
+```
+
+## Performance and size
+
+Run `npm run benchmark` after `npm run build` for raw Chromium medians,
+variance, forced-GC memory data, runtime versions, and compressed bundle sizes.
+`npm run size` enforces a 10 KB gzip budget for the full builds.
+
+## Compatibility
+
+DOMSculptor follows semantic versioning. Patch releases fix compatible defects,
+minor releases add compatible APIs, and breaking behavior is reserved for major
+releases with changelog and migration entries. In 2.0, `create(tag)` became
+detached by default; use `createIn(parent, tag)` or `mount()` for insertion.
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request.
+
+Maintainers should use the [release checklist](./docs/releasing.md) before
+creating a tag or publishing a package.

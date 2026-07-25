@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete DOMSculptor examples with deterministic cleanup.">
+  <title>DOMSculptor Complete Examples</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation"><a href="./index.html">Documentation</a><a href="#counter">Examples</a></nav>
+  </header>
+  <main class="examples-page">
+    <section class="hero">
+      <p class="eyebrow">Complete, framework-free examples</p>
+      <h1>Build it. Mount it. Clean it up.</h1>
+      <p class="lede">Each example uses the immutable 2.0.0 browser ESM URL and includes its complete disposal path.</p>
+      <pre><code>import DomSculptor from "https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js";</code></pre>
+    </section>
+
+    <section id="counter">
+      <p class="eyebrow">Counter</p><h2>Signal-driven component</h2>
+      <pre><code>const sculptor = new DomSculptor();
+const Counter = sculptor.component(({ initial = 0 }) =&gt; {
+  const count = sculptor.signal(initial);
+  return {
+    root: sculptor.tree({
+      tag: "button",
+      text: count,
+      on: { click: () =&gt; count.update(value =&gt; value + 1) }
+    }),
+    api: { count }
+  };
+});
+const counter = Counter({ initial: 2 });
+sculptor.mount(counter, "#app");
+counter.dispose(); // page teardown</code></pre>
+    </section>
+
+    <section id="todos">
+      <p class="eyebrow">Keyed todo list</p><h2>Stable rows and delegated removal</h2>
+      <pre><code>const scope = sculptor.createScope();
+scope.run(() =&gt; {
+  const todos = sculptor.signal([{ id: 1, text: "Ship safely" }]);
+  const list = sculptor.create("ul");
+  todos.list(list, {
+    key: todo =&gt; todo.id,
+    render: todo =&gt; sculptor.tree({
+      tag: "li",
+      attributes: { "data-id": todo.id },
+      children: [{ tag: "span", text: todo.text }, { tag: "button", class: "delete", text: "Delete" }]
+    }),
+    update: (row, todo) =&gt; row.child.find("span").setText(todo.text)
+  });
+  list.on("click", ".delete", (_event, button) =&gt; {
+    const id = Number(button.closest("li").dataset.id);
+    todos.update(items =&gt; items.filter(todo =&gt; todo.id !== id));
+  });
+  sculptor.mount(list, "#app");
+});
+scope.dispose(); // rows, listeners, and subscriptions</code></pre>
+    </section>
+
+    <section id="table">
+      <p class="eyebrow">Searchable table</p><h2>Computed filtering and batching</h2>
+      <pre><code>const scope = sculptor.createScope();
+scope.run(() =&gt; {
+  const query = sculptor.signal("");
+  const rows = sculptor.signal(sourceRows);
+  const visible = sculptor.computed(
+    () =&gt; rows.get().filter(row =&gt; row.name.toLowerCase().includes(query.get().toLowerCase())),
+    [rows, query]
+  );
+  const input = sculptor.create("input");
+  query.bind(input);
+  const body = sculptor.create("tbody");
+  visible.list(body, {
+    key: row =&gt; row.id,
+    render: row =&gt; sculptor.tree({ tag: "tr", children: [{ tag: "td", text: row.name }] })
+  });
+  sculptor.mount(sculptor.tree({ tag: "section", children: [input, { tag: "table", children: [body] }] }), "#app");
+});
+scope.dispose(); // computed, signals, bindings, and DOM</code></pre>
+    </section>
+
+    <section id="modal">
+      <p class="eyebrow">Accessible modal</p><h2>Focus handoff and Escape cleanup</h2>
+      <pre><code>const previousFocus = document.activeElement;
+const modal = sculptor.tree({
+  tag: "section",
+  attributes: { role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-title" },
+  children: [{ tag: "h2", attributes: { id: "modal-title" }, text: "Settings" }, { tag: "button", text: "Close" }]
+});
+const close = () =&gt; {
+  modal.dispose();
+  previousFocus?.focus();
+};
+modal.child.find("button").on("click", close);
+modal.on("keydown", event =&gt; { if (event.key === "Escape") close(); });
+sculptor.mount(modal, document.body);
+modal.child.find("button").focus();
+close(); // route teardown uses the same path</code></pre>
+    </section>
+
+    <section id="form">
+      <p class="eyebrow">Validated form</p><h2>Native validation and ARIA state</h2>
+      <pre><code>const scope = sculptor.createScope();
+scope.run(() =&gt; {
+  const email = sculptor.signal("");
+  const invalid = sculptor.computed(() =&gt; !email.get().includes("@"), [email]);
+  const input = sculptor.create("input").attribute.set({ type: "email", required: "" });
+  email.bind(input);
+  input.attr("aria-invalid", invalid).classToggle("invalid", invalid);
+  const form = sculptor.tree({ tag: "form", children: [input, { tag: "button", text: "Save" }] });
+  form.on("submit", event =&gt; {
+    event.preventDefault();
+    if (!invalid.get()) save(email.get());
+  });
+  sculptor.mount(form, "#app");
+});
+scope.dispose(); // validation, binding, listener, and form</code></pre>
+    </section>
+
+    <section id="search">
+      <p class="eyebrow">Async user search</p><h2>Cancellation and live status</h2>
+      <pre><code>const scope = sculptor.createScope();
+scope.run(() =&gt; {
+  const query = sculptor.signal("");
+  const request = sculptor.asyncState([]);
+  const input = sculptor.create("input");
+  const status = sculptor.create("p").attribute.set({ "aria-live": "polite" });
+  query.bind(input);
+  input.on("input", async () =&gt; {
+    try {
+      await request.run(({ signal }) =&gt;
+        fetch(`/api/users?q=${encodeURIComponent(query.get())}`, { signal }).then(response =&gt; response.json())
+      );
+      status.setText(`${request.get().data.length} users`);
+    } catch (error) {
+      if (error.name !== "AbortError") status.setText("Search failed");
+    }
+  });
+  sculptor.mount(sculptor.tree({ tag: "section", children: [input, status] }), "#app");
+});
+scope.dispose(); // aborts pending work and removes listeners</code></pre>
+    </section>
+
+    <section id="extension">
+      <p class="eyebrow">Browser-extension popup</p><h2>Small, build-free controls</h2>
+      <pre><code>const scope = sculptor.createScope();
+scope.run(() =&gt; {
+  const enabled = sculptor.signal(false);
+  const toggle = sculptor.create("input").attribute.set({ type: "checkbox" });
+  enabled.bind(toggle);
+  enabled.subscribe(value =&gt; chrome.storage.local.set({ enabled: value }), { immediate: true });
+  sculptor.mount(sculptor.tree({
+    tag: "label",
+    children: [toggle, " Enable page tools"]
+  }), "#app");
+});
+window.addEventListener("unload", () =&gt; scope.dispose(), { once: true });</code></pre>
+    </section>
+
+    <section id="enhancement">
+      <p class="eyebrow">Progressive enhancement</p><h2>Adopt existing server markup</h2>
+      <pre><code>const scope = sculptor.createScope();
+scope.run(() =&gt; {
+  const menu = sculptor.adopt(document.querySelector("[data-menu]"));
+  const open = sculptor.signal(false);
+  const button = menu.child.find("button");
+  const panel = menu.child.find("[data-panel]");
+  open.bindHidden(panel, value =&gt; !value);
+  button.attr("aria-expanded", open);
+  button.on("click", () =&gt; open.update(value =&gt; !value));
+  scope.track(() =&gt; sculptor.unmount(menu));
+});
+scope.dispose(); // keeps server markup but removes ownership and listeners</code></pre>
+    </section>
+  </main>
+  <footer><span>DOMSculptor 2.0</span><span>Every example owns its cleanup</span></footer>
+</body>
+</html>

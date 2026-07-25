@@ -1,4 +1,57 @@
-let elementWrappers = new WeakMap();
+let throwCollectedErrors = (errors, message) => {
+    if (!errors.length) return;
+    if (errors.length === 1) throw errors[0];
+    if (typeof AggregateError === 'function') throw new AggregateError(errors, message);
+    throw errors[0];
+};
+
+class DisposalScope {
+    constructor(sculptor) {
+        this._sculptor = sculptor;
+        this._cleanups = [];
+        this._disposed = false;
+    }
+
+    track(cleanup) {
+        if (typeof cleanup !== 'function') throw new TypeError('DomSculptor.scope.track: expected a function.');
+        if (this._disposed) {
+            cleanup();
+            return cleanup;
+        }
+        this._cleanups.push(cleanup);
+        return cleanup;
+    }
+
+    run(callback) {
+        if (this._disposed) throw new Error('DomSculptor: cannot run a disposed scope.');
+        if (typeof callback !== 'function') throw new TypeError('DomSculptor.scope.run: expected a function.');
+        let previous = this._sculptor._activeScope;
+        this._sculptor._activeScope = this;
+        try { return callback(); }
+        finally { this._sculptor._activeScope = previous; }
+    }
+
+    dispose() {
+        if (this._disposed) return;
+        this._disposed = true;
+        let cleanups = this._cleanups.splice(0).reverse();
+        let errors = [];
+        this._sculptor._disposalDepth++;
+        try {
+            cleanups.forEach(cleanup => {
+                try { cleanup(); } catch (error) { errors.push(error); }
+            });
+        } finally {
+            this._sculptor._disposalDepth--;
+        }
+        throwCollectedErrors(errors, 'Multiple disposal scope cleanups failed.');
+    }
+
+    get disposed() {
+        return this._disposed;
+    }
+}
+
 let isNode = value => {
     if (typeof Node !== 'undefined' && value instanceof Node) return true;
     return value !== null && typeof value === 'object' &&
@@ -9,19 +62,22 @@ class DomElement {
     constructor(tagNameOrNode, sculptor) {
         this.html = isNode(tagNameOrNode) ? tagNameOrNode : document.createElement(tagNameOrNode);
         this._sculptor = sculptor;
-        this.children = [];
+        this._children = [];
         this._parent = null;
         this._listeners = {};
         this._mountCallbacks = [];
+        this._unmountCallbacks = [];
         this._removeCallbacks = [];
         this._removing = false;
         this._displayBeforeHide = null;
         sculptor?._elements?.set(this.html, this);
+        if (sculptor) DomSculptor._owners.set(this.html, this);
 
         let el = this;
 
         this.attribute = {
             set(name, value = '') {
+                el._assertLive('attribute.set');
                 if (typeof name === 'object' && name !== null) {
                     for (let key in name) {
                         if (Object.hasOwnProperty.call(name, key)) el.html.setAttribute(key, name[key]);
@@ -29,7 +85,7 @@ class DomElement {
                 } else if (typeof name === 'string') {
                     el.html.setAttribute(name, value);
                 } else {
-                    console.warn('DomSculptor: attribute.set received invalid name type.', name);
+                    throw new TypeError('DomSculptor.attribute.set: expected a string or attribute object.');
                 }
                 return el;
             },
@@ -47,11 +103,12 @@ class DomElement {
 
         this.child = {
             append(child) {
+                el._assertLive('child.append');
                 let childElement = el._elementFor(child);
                 if (childElement) {
                     el.html.appendChild(childElement.html);
                     childElement._detachFromParent();
-                    el.children.push(childElement);
+                    el._children.push(childElement);
                     childElement._parent = el;
                     childElement._notifyMount();
                 } else if (isNode(child)) {
@@ -59,16 +116,18 @@ class DomElement {
                 } else if (typeof child === 'string') {
                     el.html.appendChild(document.createTextNode(child));
                 } else {
-                    console.warn('DomSculptor: child.append received invalid child type.', child);
+                    el._sculptor?._warn('invalid-child', 'child.append received an invalid child.', child);
+                    throw new TypeError('DomSculptor.child.append: expected a DomElement, Node, or string.');
                 }
                 return el;
             },
             prepend(child) {
+                el._assertLive('child.prepend');
                 let childElement = el._elementFor(child);
                 if (childElement) {
                     el.html.prepend(childElement.html);
                     childElement._detachFromParent();
-                    el.children.unshift(childElement);
+                    el._children.unshift(childElement);
                     childElement._parent = el;
                     childElement._notifyMount();
                 } else if (isNode(child)) {
@@ -76,7 +135,8 @@ class DomElement {
                 } else if (typeof child === 'string') {
                     el.html.prepend(document.createTextNode(child));
                 } else {
-                    console.warn('DomSculptor: child.prepend received invalid child type.', child);
+                    el._sculptor?._warn('invalid-child', 'child.prepend received an invalid child.', child);
+                    throw new TypeError('DomSculptor.child.prepend: expected a DomElement, Node, or string.');
                 }
                 return el;
             },
@@ -94,17 +154,95 @@ class DomElement {
         };
     }
 
+    get children() {
+        return Object.freeze(this._children.slice());
+    }
+
+    _assertLive(operation) {
+        if (this.html) return;
+        this._sculptor?._warn(
+            'disposed-element-operation',
+            `Ignored ${operation} on a disposed element.`
+        );
+        throw new Error(`DomSculptor.${operation}: element has been disposed.`);
+    }
+
     setText(text) {
+        this._assertLive('setText');
         let cleanupError = null;
         try { this._clearChildren(); } catch (error) { cleanupError = error; }
         this.html.textContent = text;
         if (cleanupError) throw cleanupError;
         return this;
     }
+
+    text(readable) {
+        this._assertLive('text');
+        if (!readable || typeof readable.get !== 'function' || typeof readable.subscribe !== 'function') {
+            throw new TypeError('DomSculptor.text: expected a readable signal.');
+        }
+        let textNode = document.createTextNode(String(readable.get() ?? ''));
+        this.html.appendChild(textNode);
+        return this._bindReadable(readable, value => {
+            textNode.textContent = String(value ?? '');
+        });
+    }
+
+    attr(name, readable) {
+        this._assertLive('attr');
+        if (typeof name !== 'string' || !name) {
+            throw new TypeError('DomSculptor.attr: expected an attribute name.');
+        }
+        return this._bindReadable(readable, value => {
+            if (value == null || value === false) this.attribute.remove(name);
+            else this.attribute.set(name, value === true ? '' : value);
+        });
+    }
+
+    classToggle(name, readable) {
+        this._assertLive('classToggle');
+        if (typeof name !== 'string' || !name) {
+            throw new TypeError('DomSculptor.classToggle: expected a class name.');
+        }
+        return this._bindReadable(readable, value => {
+            if (value) this.class.add(name);
+            else this.class.remove(name);
+        });
+    }
+
+    styleValue(property, readable) {
+        this._assertLive('styleValue');
+        if (typeof property !== 'string' || !property) {
+            throw new TypeError('DomSculptor.styleValue: expected a style property.');
+        }
+        return this._bindReadable(readable, value => {
+            this.setStyle(property, value == null ? '' : value);
+        });
+    }
+
+    _bindReadable(readable, apply) {
+        if (!readable || typeof readable.get !== 'function' || typeof readable.subscribe !== 'function') {
+            throw new TypeError('DomSculptor: expected a readable signal.');
+        }
+        apply(readable.get());
+        let render = () => {
+            if (this.html) apply(readable.get());
+        };
+        let unsubscribe = readable.subscribe(() => this._sculptor._schedule(render));
+        let cleanup = () => {
+            this._sculptor._scheduledJobs.delete(render);
+            unsubscribe();
+        };
+        this.onRemove(cleanup);
+        this._sculptor._track(cleanup);
+        return this;
+    }
+
     getValue() { return this.html.value; }
     setValue(value) { this.html.value = value; return this; }
 
     setStyle(property, value) {
+        this._assertLive('setStyle');
         if (typeof property === 'object' && property !== null) {
             for (let key in property) {
                 if (Object.hasOwnProperty.call(property, key)) this.html.style[key] = property[key];
@@ -112,7 +250,7 @@ class DomElement {
         } else if (typeof property === 'string' && value !== undefined) {
             this.html.style[property] = value;
         } else {
-            console.warn('DomSculptor: setStyle received invalid arguments.', property, value);
+            throw new TypeError('DomSculptor.setStyle: expected a style object or property and value.');
         }
         return this;
     }
@@ -128,6 +266,29 @@ class DomElement {
         return this;
     }
 
+    focus(options = undefined) {
+        this._assertLive('focus');
+        if (typeof this.html.focus !== 'function') {
+            throw new TypeError('DomSculptor.focus: element is not focusable.');
+        }
+        this.html.focus(options);
+        return this;
+    }
+
+    blur() {
+        this._assertLive('blur');
+        if (typeof this.html.blur !== 'function') {
+            throw new TypeError('DomSculptor.blur: element is not focusable.');
+        }
+        this.html.blur();
+        return this;
+    }
+
+    isFocused() {
+        this._assertLive('isFocused');
+        return this.html.ownerDocument?.activeElement === this.html;
+    }
+
     parent() {
         let parentNode = this.html?.parentNode || null;
         if (this._parent?.html === parentNode) return this._parent;
@@ -135,10 +296,10 @@ class DomElement {
         if (!parentNode) return null;
 
         let parent = this._sculptor._wrapNode(parentNode);
-        parent.children = parent.children.filter(child => child !== this && child.html?.parentNode === parentNode);
-        parent.children.push(this);
+        parent._children = parent._children.filter(child => child !== this && child.html?.parentNode === parentNode);
+        parent._children.push(this);
         let nodeOrder = Array.from(parentNode.childNodes || []);
-        parent.children.sort((a, b) => nodeOrder.indexOf(a.html) - nodeOrder.indexOf(b.html));
+        parent._children.sort((a, b) => nodeOrder.indexOf(a.html) - nodeOrder.indexOf(b.html));
         this._parent = parent;
         return parent;
     }
@@ -156,46 +317,91 @@ class DomElement {
     after(value) { return this._insertSibling(value, true); }
 
     onMount(callback) {
-        if (typeof callback !== 'function') return this;
+        if (typeof callback !== 'function') throw new TypeError('DomSculptor.onMount: expected a function.');
         if (this._isMounted()) callback(this);
         else this._mountCallbacks.push(callback);
         return this;
     }
 
-    onRemove(callback) {
-        if (typeof callback === 'function') this._removeCallbacks.push(callback);
+    onUnmount(callback) {
+        if (typeof callback !== 'function') throw new TypeError('DomSculptor.onUnmount: expected a function.');
+        this._unmountCallbacks.push(callback);
         return this;
     }
 
-    on(event, callback) {
+    onDispose(callback) {
+        if (typeof callback !== 'function') throw new TypeError('DomSculptor.onDispose: expected a function.');
+        this._removeCallbacks.push(callback);
+        return this;
+    }
+
+    onRemove(callback) {
+        return this.onDispose(callback);
+    }
+
+    on(event, callback, options = undefined, delegatedOptions = undefined) {
         if (typeof event === 'object' && event !== null) {
             for (let key in event) {
                 if (Object.hasOwnProperty.call(event, key) && typeof event[key] === 'function') {
-                    this.on(key, event[key]);
+                    this.on(key, event[key], options);
                 }
             }
+        } else if (typeof event === 'string' && typeof callback === 'string') {
+            if (typeof options !== 'function') {
+                throw new TypeError('DomSculptor.on: delegated events require a handler function.');
+            }
+            let selector = callback;
+            let handler = options;
+            let wrapped = eventObject => {
+                let matched = eventObject.target?.closest?.(selector) || null;
+                if (!matched) return;
+                let withinRoot = false;
+                for (let node = matched; node; node = node.parentNode) {
+                    if (node === this.html) {
+                        withinRoot = true;
+                        break;
+                    }
+                }
+                if (withinRoot) handler.call(matched, eventObject, matched);
+            };
+            wrapped._domSculptorOriginal = handler;
+            if (delegatedOptions?.signal?.aborted) return this;
+            this.html.addEventListener(event, wrapped, delegatedOptions);
+            this._rememberListener(event, wrapped, delegatedOptions);
+            this._sculptor._track(() => {
+                if (this.html) this.off(event, handler);
+            });
         } else if (typeof event === 'string' && typeof callback === 'function') {
-            this.html.addEventListener(event, callback);
-            if (!this._listeners[event]) this._listeners[event] = [];
-            this._listeners[event].push(callback);
+            if (options?.signal?.aborted) return this;
+            this.html.addEventListener(event, callback, options);
+            this._rememberListener(event, callback, options);
+            this._sculptor._track(() => {
+                if (this.html) this.off(event, callback);
+            });
         } else {
-            console.warn(`DomSculptor: Invalid arguments for .on('${event}', ${callback})`);
+            throw new TypeError('DomSculptor.on: invalid event arguments.');
         }
         return this;
     }
 
-    once(event, callback) {
+    once(event, callback, options = undefined) {
         if (typeof event === 'string' && typeof callback === 'function') {
             let wrapped = (...args) => {
                 this._forgetListener(event, wrapped);
                 callback.apply(this.html, args);
             };
             wrapped._domSculptorOriginal = callback;
-            this.html.addEventListener(event, wrapped, { once: true });
-            if (!this._listeners[event]) this._listeners[event] = [];
-            this._listeners[event].push(wrapped);
+            let listenerOptions = typeof options === 'boolean'
+                ? { capture: options, once: true }
+                : { ...options, once: true };
+            if (listenerOptions.signal?.aborted) return this;
+            this.html.addEventListener(event, wrapped, listenerOptions);
+            this._rememberListener(event, wrapped, listenerOptions);
+            this._sculptor._track(() => {
+                if (this.html) this.off(event, callback);
+            });
         } else {
-            console.warn(`DomSculptor: Invalid arguments for .once()`);
+            throw new TypeError('DomSculptor.once: expected an event name and callback.');
         }
         return this;
     }
@@ -206,12 +412,20 @@ class DomElement {
             return this;
         }
         if (callback) {
-            let matches = this._listeners[event].filter(cb => cb === callback || cb._domSculptorOriginal === callback);
-            matches.forEach(cb => this.html.removeEventListener(event, cb));
-            this._listeners[event] = this._listeners[event].filter(cb => !matches.includes(cb));
+            let matches = this._listeners[event].filter(listener =>
+                listener.callback === callback || listener.callback._domSculptorOriginal === callback
+            );
+            matches.forEach(listener => {
+                listener.removeAbortTracking?.();
+                this.html.removeEventListener(event, listener.callback, listener.options);
+            });
+            this._listeners[event] = this._listeners[event].filter(listener => !matches.includes(listener));
             if (!this._listeners[event].length) delete this._listeners[event];
         } else {
-            this._listeners[event].forEach(cb => this.html.removeEventListener(event, cb));
+            this._listeners[event].forEach(listener => {
+                listener.removeAbortTracking?.();
+                this.html.removeEventListener(event, listener.callback, listener.options);
+            });
             delete this._listeners[event];
         }
         return this;
@@ -219,13 +433,29 @@ class DomElement {
 
     _forgetListener(event, callback) {
         if (!this._listeners[event]) return;
-        this._listeners[event] = this._listeners[event].filter(cb => cb !== callback);
+        this._listeners[event] = this._listeners[event].filter(listener => {
+            if (listener.callback !== callback) return true;
+            listener.removeAbortTracking?.();
+            return false;
+        });
         if (!this._listeners[event].length) delete this._listeners[event];
+    }
+
+    _rememberListener(event, callback, options) {
+        if (!this._listeners[event]) this._listeners[event] = [];
+        let listener = { callback, options };
+        let signal = typeof options === 'object' && options !== null ? options.signal : null;
+        if (signal) {
+            let forget = () => this._forgetListener(event, callback);
+            signal.addEventListener('abort', forget, { once: true });
+            listener.removeAbortTracking = () => signal.removeEventListener('abort', forget);
+        }
+        this._listeners[event].push(listener);
     }
 
     _detachFromParent() {
         if (!this._parent) return;
-        this._parent.children = this._parent.children.filter(child => child !== this);
+        this._parent._children = this._parent._children.filter(child => child !== this);
         this._parent = null;
     }
 
@@ -237,14 +467,25 @@ class DomElement {
     _notifyMount() {
         if (!this._isMounted()) return;
         let callbacks = this._mountCallbacks.splice(0);
-        let firstError = null;
+        let errors = [];
         callbacks.forEach(callback => {
-            try { callback(this); } catch (error) { if (!firstError) firstError = error; }
+            try { callback(this); } catch (error) { errors.push(error); }
         });
-        this.children.forEach(child => {
-            try { child._notifyMount(); } catch (error) { if (!firstError) firstError = error; }
+        this._children.forEach(child => {
+            try { child._notifyMount(); } catch (error) { errors.push(error); }
         });
-        if (firstError) throw firstError;
+        throwCollectedErrors(errors, 'Multiple mount hooks failed.');
+    }
+
+    _notifyUnmount() {
+        let errors = [];
+        this._children.slice().reverse().forEach(child => {
+            try { child._notifyUnmount(); } catch (error) { errors.push(error); }
+        });
+        this._unmountCallbacks.slice().forEach(callback => {
+            try { callback(this); } catch (error) { errors.push(error); }
+        });
+        throwCollectedErrors(errors, 'Multiple unmount hooks failed.');
     }
 
     _toNode(value) {
@@ -270,7 +511,7 @@ class DomElement {
 
     _clearChildren() {
         let firstError = null;
-        this.children.slice().forEach(child => {
+        this._children.slice().forEach(child => {
             if (child._parent !== this && child.html?.parentNode !== this.html) return;
             try { child.remove(); } catch (error) { if (!firstError) firstError = error; }
         });
@@ -279,7 +520,7 @@ class DomElement {
             try { this._cleanupKnownNode(node); } catch (error) { if (!firstError) firstError = error; }
             if (node.parentNode === this.html) this.html.removeChild(node);
         }
-        this.children = [];
+        this._children = [];
         if (firstError) throw firstError;
     }
 
@@ -289,8 +530,8 @@ class DomElement {
         let previousElement = this._elementFor(previous);
         let nextElement = this._elementFor(next);
         if (!previousNode || !nextNode || previousNode.parentNode !== this.html) {
-            console.warn('DomSculptor: child.replace received invalid children.', previous, next);
-            return this;
+            this._sculptor?._warn('invalid-child', 'child.replace received invalid children.', { previous, next });
+            throw new TypeError('DomSculptor.child.replace: expected an existing child and a replacement.');
         }
         if (previousNode === nextNode) return this;
 
@@ -299,11 +540,11 @@ class DomElement {
 
         let firstError = null;
         try { this._cleanupKnownNode(previousNode); } catch (error) { firstError = error; }
-        this.children = this.children.filter(child => child !== previousElement && child !== nextElement);
+        this._children = this._children.filter(child => child !== previousElement && child !== nextElement);
         if (nextElement) {
             let nodeOrder = Array.from(this.html.childNodes);
-            this.children.push(nextElement);
-            this.children.sort((a, b) => nodeOrder.indexOf(a.html) - nodeOrder.indexOf(b.html));
+            this._children.push(nextElement);
+            this._children.sort((a, b) => nodeOrder.indexOf(a.html) - nodeOrder.indexOf(b.html));
             nextElement._parent = this;
             try { nextElement._notifyMount(); } catch (error) { if (!firstError) firstError = error; }
         }
@@ -324,128 +565,660 @@ class DomElement {
         let owner = this.parent();
         if (valueElement && owner) {
             let nodeOrder = Array.from(parentNode.childNodes);
-            owner.children = owner.children.filter(child => child !== valueElement);
-            owner.children.push(valueElement);
-            owner.children.sort((a, b) => nodeOrder.indexOf(a.html) - nodeOrder.indexOf(b.html));
+            owner._children = owner._children.filter(child => child !== valueElement);
+            owner._children.push(valueElement);
+            owner._children.sort((a, b) => nodeOrder.indexOf(a.html) - nodeOrder.indexOf(b.html));
             valueElement._parent = owner;
             valueElement._notifyMount();
         }
         return this;
     }
 
-    remove() {
+    dispose() {
         if (!this.html || this._removing) return;
         this._removing = true;
-        let firstError = null;
+        let errors = [];
         this._detachFromParent();
-        let removeCallbacks = this._removeCallbacks.splice(0);
-        removeCallbacks.forEach(callback => {
-            try { callback(this); } catch (error) { if (!firstError) firstError = error; }
+        try { this._clearChildren(); } catch (error) { errors.push(error); }
+        let disposeCallbacks = this._removeCallbacks.splice(0);
+        disposeCallbacks.forEach(callback => {
+            try { callback(this); } catch (error) { errors.push(error); }
         });
         for (let eventType in this._listeners) {
             if (Object.hasOwnProperty.call(this._listeners, eventType)) {
-                this._listeners[eventType].forEach(cb => this.html.removeEventListener(eventType, cb));
+                this._listeners[eventType].forEach(listener =>
+                    {
+                        listener.removeAbortTracking?.();
+                        this.html.removeEventListener(eventType, listener.callback, listener.options);
+                    }
+                );
             }
         }
         this._listeners = {};
-        try { this._clearChildren(); } catch (error) { if (!firstError) firstError = error; }
         if (this.html?.parentNode) this.html.parentNode.removeChild(this.html);
         this._sculptor?._elements?.delete(this.html);
+        DomSculptor._owners.delete(this.html);
         this.html = null;
         this._removing = false;
-        if (firstError) throw firstError;
+        throwCollectedErrors(errors, 'Multiple dispose operations failed.');
+    }
+
+    remove() {
+        return this.dispose();
     }
 }
 
 class DomSculptor {
-    constructor() {
-        this._elements = elementWrappers;
+    static _owners = new WeakMap();
+
+    constructor(options = {}) {
+        if (!options || typeof options !== 'object') {
+            throw new TypeError('DomSculptor: constructor options must be an object.');
+        }
+        this._elements = new WeakMap();
+        this._scheduledJobs = new Set();
+        this._flushPending = false;
+        this._batchDepth = 0;
+        this._activeScope = null;
+        this._disposalDepth = 0;
+        this._development = Boolean(options.development);
+        this._onWarning = options.onWarning;
+        this._activeComponents = new Set();
+        if (this._onWarning != null && typeof this._onWarning !== 'function') {
+            throw new TypeError('DomSculptor: onWarning must be a function.');
+        }
+    }
+
+    _warn(code, message, details = undefined) {
+        if (!this._development) return;
+        let warning = { code, message, details };
+        if (this._onWarning) this._onWarning(warning);
+        else if (typeof console !== 'undefined') console.warn(`[DOMSculptor ${code}] ${message}`, details);
+    }
+
+    _flushJobs() {
+        this._flushPending = false;
+        let errors = [];
+        while (this._scheduledJobs.size) {
+            let jobs = Array.from(this._scheduledJobs);
+            this._scheduledJobs.clear();
+            jobs.forEach(job => {
+                try { job(); } catch (error) { errors.push(error); }
+            });
+        }
+        throwCollectedErrors(errors, 'Multiple scheduled DOMSculptor jobs failed.');
+    }
+
+    _requestFlush() {
+        if (!this._scheduledJobs.size || this._flushPending || this._batchDepth) return;
+        this._flushPending = true;
+        queueMicrotask(() => {
+            try { this._flushJobs(); }
+            catch (error) { setTimeout(() => { throw error; }); }
+        });
+    }
+
+    _schedule(job) {
+        this._scheduledJobs.add(job);
+        this._requestFlush();
+    }
+
+    _track(cleanup) {
+        this._activeScope?.track(cleanup);
     }
 
     _wrapNode(node) {
-        return this._elements.get(node) || new DomElement(node, this);
+        let existing = this._elements.get(node);
+        if (existing) return existing;
+        let owned = DomSculptor._owners.get(node);
+        if (owned) {
+            this._warn(
+                'wrapper-ownership',
+                'A node already managed by another DOMSculptor instance was reused.',
+                node
+            );
+            return owned;
+        }
+        return new DomElement(node, this);
+    }
+
+    createScope() {
+        return new DisposalScope(this);
+    }
+
+    createContextKey(description = undefined) {
+        return Symbol(description);
+    }
+
+    createContext(parent = null, initial = null) {
+        if (parent != null && typeof parent.get !== 'function') {
+            throw new TypeError('DomSculptor.createContext: parent must be a context.');
+        }
+        let sculptor = this;
+        let values = new Map();
+        if (initial instanceof Map) initial.forEach((value, key) => values.set(key, value));
+        else if (initial && typeof initial === 'object') {
+            Reflect.ownKeys(initial).forEach(key => values.set(key, initial[key]));
+        } else if (initial != null) {
+            throw new TypeError('DomSculptor.createContext: initial values must be an object or Map.');
+        }
+        let context = {
+            get(key, fallback = undefined) {
+                if (values.has(key)) return values.get(key);
+                return parent ? parent.get(key, fallback) : fallback;
+            },
+            has(key) {
+                return values.has(key) || Boolean(parent?.has(key));
+            },
+            set(key, value) {
+                values.set(key, value);
+                return context;
+            },
+            delete(key) {
+                return values.delete(key);
+            },
+            child(childValues = null) {
+                return sculptor.createContext(context, childValues);
+            }
+        };
+        return context;
+    }
+
+    component(factory, options = {}) {
+        if (typeof factory !== 'function') throw new TypeError('DomSculptor.component: expected a factory.');
+        if (!options || typeof options !== 'object') {
+            throw new TypeError('DomSculptor.component: options must be an object.');
+        }
+        let sculptor = this;
+        return (props = {}, context = sculptor.createContext()) => {
+            let parentScope = sculptor._activeScope;
+            let scope = sculptor.createScope();
+            let result;
+            try {
+                result = scope.run(() => factory(props, context));
+            } catch (error) {
+                let errors = [error];
+                try { scope.dispose(); } catch (cleanupError) { errors.push(cleanupError); }
+                throwCollectedErrors(errors, 'Component creation and cleanup failed.');
+            }
+            let definition = result instanceof DomElement || isNode(result)
+                ? { root: result }
+                : result;
+            if (!definition || typeof definition !== 'object') {
+                scope.dispose();
+                throw new TypeError('DomSculptor.component: factory must return a root or component definition.');
+            }
+            let root = definition.root instanceof DomElement
+                ? definition.root
+                : isNode(definition.root) ? sculptor._wrapNode(definition.root) : null;
+            if (!root || !root.html) {
+                scope.dispose();
+                throw new TypeError('DomSculptor.component: root must be a live DomElement or Node.');
+            }
+            let fragmentNodes = root.html.nodeType === 11 ? Array.from(root.html.childNodes) : null;
+            scope.track(() => root.remove());
+            if (fragmentNodes) {
+                scope.track(() => {
+                    let errors = [];
+                    fragmentNodes.forEach(node => {
+                        let wrapped = sculptor._elements.get(node);
+                        try {
+                            if (wrapped?.html) wrapped.remove();
+                            else {
+                                root._cleanupKnownNode(node);
+                                node.parentNode?.removeChild(node);
+                            }
+                        } catch (error) {
+                            errors.push(error);
+                        }
+                    });
+                    throwCollectedErrors(errors, 'Multiple fragment component nodes failed to dispose.');
+                });
+            }
+            if (definition.dispose != null) {
+                if (typeof definition.dispose !== 'function') {
+                    scope.dispose();
+                    throw new TypeError('DomSculptor.component: dispose must be a function.');
+                }
+                scope.track(definition.dispose);
+            }
+            let instance = {
+                root,
+                api: definition.api || {},
+                scope,
+                context,
+                name: options.name || factory.name || 'AnonymousComponent',
+                createdAt: sculptor._development ? new Error().stack : undefined,
+                _fragmentNodes: fragmentNodes,
+                dispose() { scope.dispose(); },
+                get disposed() { return scope.disposed; }
+            };
+            if (sculptor._development) {
+                sculptor._activeComponents.add(instance);
+                scope.track(() => sculptor._activeComponents.delete(instance));
+            }
+            parentScope?.track(() => instance.dispose());
+            return instance;
+        };
+    }
+
+    errorBoundary(componentFactory, fallback) {
+        if (typeof componentFactory !== 'function') {
+            throw new TypeError('DomSculptor.errorBoundary: expected a component factory.');
+        }
+        if (typeof fallback !== 'function') {
+            throw new TypeError('DomSculptor.errorBoundary: expected a fallback function.');
+        }
+        let sculptor = this;
+        return (props = {}, context = sculptor.createContext()) => {
+            try {
+                return componentFactory(props, context);
+            } catch (error) {
+                let replacement = fallback(error, props, context);
+                if (replacement?.root instanceof DomElement && typeof replacement.dispose === 'function') {
+                    return replacement;
+                }
+                return sculptor.component(() => replacement)(props, context);
+            }
+        };
+    }
+
+    _resolveParent(parent) {
+        if (parent instanceof DomElement) {
+            if (!parent.html) {
+                this._warn('invalid-parent', 'Mount received a disposed parent.');
+                throw new Error('DomSculptor.mount: parent has been disposed.');
+            }
+            return { node: parent.html, element: parent };
+        }
+        if (isNode(parent)) return { node: parent, element: this._elements.get(parent) || null };
+        if (typeof parent === 'string') {
+            let node = document.querySelector(parent);
+            if (!node) {
+                this._warn('invalid-parent', `Mount could not find parent "${parent}".`);
+                throw new Error(`DomSculptor.mount: could not find parent "${parent}".`);
+            }
+            return { node, element: this._elements.get(node) || null };
+        }
+        this._warn('invalid-parent', 'Mount received an invalid parent value.', parent);
+        throw new TypeError('DomSculptor.mount: expected a selector, Node, or DomElement parent.');
+    }
+
+    createDetached(tagName, callback = null) {
+        if (typeof tagName !== 'string' || !tagName) {
+            throw new TypeError('DomSculptor.createDetached: expected a tag name.');
+        }
+        let element = new DomElement(tagName, this);
+        this._track(() => element.remove());
+        if (callback != null && typeof callback !== 'function') {
+            element.remove();
+            throw new TypeError('DomSculptor.createDetached: callback must be a function.');
+        }
+        callback?.(element);
+        return element;
+    }
+
+    mount(element, parent) {
+        if (element && element.root instanceof DomElement && element._fragmentNodes) {
+            if (element.disposed) throw new Error('DomSculptor.mount: component has been disposed.');
+            let resolved = this._resolveParent(parent);
+            element._fragmentNodes.forEach(node => {
+                if (node.parentNode !== element.root.html) element.root.html.appendChild(node);
+            });
+            resolved.node.appendChild(element.root.html);
+            let errors = [];
+            try { element.root._notifyMount(); } catch (error) { errors.push(error); }
+            element._fragmentNodes.forEach(node => {
+                let wrapped = this._elements.get(node);
+                if (!wrapped) return;
+                try { wrapped._notifyMount(); } catch (error) { errors.push(error); }
+            });
+            throwCollectedErrors(errors, 'Multiple fragment component mount hooks failed.');
+            return element;
+        }
+        if (element && element.root instanceof DomElement) {
+            this.mount(element.root, parent);
+            return element;
+        }
+        if (!(element instanceof DomElement) || !element.html) {
+            throw new TypeError('DomSculptor.mount: expected a live DomElement.');
+        }
+        let resolved = this._resolveParent(parent);
+        resolved.node.appendChild(element.html);
+        element._detachFromParent();
+        if (resolved.element) {
+            resolved.element._children = resolved.element._children.filter(child => child !== element);
+            resolved.element._children.push(element);
+            element._parent = resolved.element;
+        }
+        element._notifyMount();
+        return element;
+    }
+
+    tryMount(element, parent) {
+        try {
+            return this.mount(element, parent);
+        } catch {
+            return null;
+        }
+    }
+
+    unmount(element) {
+        if (element && element.root instanceof DomElement && element._fragmentNodes) {
+            if (element.disposed) throw new Error('DomSculptor.unmount: component has been disposed.');
+            let errors = [];
+            element._fragmentNodes.slice().reverse().forEach(node => {
+                let wrapped = this._elements.get(node);
+                if (!wrapped) return;
+                try { wrapped._notifyUnmount(); } catch (error) { errors.push(error); }
+            });
+            try { element.root._notifyUnmount(); } catch (error) { errors.push(error); }
+            element._fragmentNodes.forEach(node => element.root.html.appendChild(node));
+            throwCollectedErrors(errors, 'Multiple fragment component unmount hooks failed.');
+            return element;
+        }
+        if (element && element.root instanceof DomElement) {
+            this.unmount(element.root);
+            return element;
+        }
+        if (!(element instanceof DomElement) || !element.html) {
+            throw new TypeError('DomSculptor.unmount: expected a live DomElement.');
+        }
+        let error = null;
+        if (element.html.parentNode) {
+            try { element._notifyUnmount(); } catch (hookError) { error = hookError; }
+        }
+        element._detachFromParent();
+        element.html.parentNode?.removeChild(element.html);
+        if (error) throw error;
+        return element;
+    }
+
+    adopt(node) {
+        if (!isNode(node)) throw new TypeError('DomSculptor.adopt: expected a Node.');
+        return this._wrapNode(node);
+    }
+
+    createIn(parent, tagName, callback = null) {
+        let element = this.createDetached(tagName);
+        this.mount(element, parent);
+        if (callback != null && typeof callback !== 'function') {
+            element.remove();
+            throw new TypeError('DomSculptor.createIn: callback must be a function.');
+        }
+        callback?.(element);
+        return element;
     }
 
     create(tagName, parent = null, callback = null) {
-        let ele = new DomElement(tagName, this);
-
-        let parentNode = null;
-        let parentElement = null;
-        if (parent == null) {
-            parentNode = document.body;
-        } else if (parent instanceof DomElement) {
-            parentNode = parent.html;
-            parentElement = parent;
-        } else if (isNode(parent)) {
-            parentNode = parent;
-        } else if (typeof parent === 'string') {
-            parentNode = document.querySelector(parent);
-            if (!parentNode) console.warn(`DomSculptor.create: Could not find parent "${parent}". Element not appended.`);
-        } else {
-            console.warn('DomSculptor.create: Invalid parent type. Element not appended.', parent);
+        if (typeof parent === 'function' && callback == null) {
+            callback = parent;
+            parent = null;
         }
-
-        if (!parentElement && parentNode) parentElement = this._elements.get(parentNode) || null;
-        if (parentNode) parentNode.appendChild(ele.html);
-        if (parentElement && parentNode) {
-            parentElement.children.push(ele);
-            ele._parent = parentElement;
+        if (callback != null && typeof callback !== 'function') {
+            throw new TypeError('DomSculptor.create: callback must be a function.');
         }
-        ele._notifyMount();
-        if (typeof callback === 'function') callback(ele);
+        let element = this.createDetached(tagName);
+        try {
+            if (parent != null) this.mount(element, parent);
+            callback?.(element);
+            return element;
+        } catch (error) {
+            element.remove();
+            throw error;
+        }
+    }
 
-        return ele;
+    tree(config) {
+        if (!config || typeof config !== 'object' || Array.isArray(config)) {
+            throw new TypeError('DomSculptor.tree: expected a configuration object.');
+        }
+        if (typeof config.tag !== 'string' || !config.tag) {
+            throw new TypeError('DomSculptor.tree: expected a tag.');
+        }
+        let element = this.createDetached(config.tag);
+        if (config.attributes != null) {
+            if (typeof config.attributes !== 'object') throw new TypeError('DomSculptor.tree: attributes must be an object.');
+            element.attribute.set(config.attributes);
+        }
+        if (config.properties != null) {
+            if (typeof config.properties !== 'object') throw new TypeError('DomSculptor.tree: properties must be an object.');
+            Object.keys(config.properties).forEach(name => { element.html[name] = config.properties[name]; });
+        }
+        if (typeof config.class === 'string') element.class.add(config.class);
+        else if (Array.isArray(config.class)) element.class.add(...config.class);
+        else if (config.class != null) throw new TypeError('DomSculptor.tree: class must be a string or array.');
+        if (config.on != null) {
+            if (typeof config.on !== 'object') throw new TypeError('DomSculptor.tree: on must be an event map.');
+            Object.keys(config.on).forEach(name => {
+                let definition = config.on[name];
+                if (typeof definition === 'function') element.on(name, definition);
+                else if (definition && typeof definition.handler === 'function') {
+                    element.on(name, definition.handler, definition.options);
+                } else {
+                    throw new TypeError(`DomSculptor.tree: invalid "${name}" event handler.`);
+                }
+            });
+        }
+        if (config.text != null) {
+            if (config.text && typeof config.text.get === 'function' && typeof config.text.subscribe === 'function') {
+                let textNode = document.createTextNode(String(config.text.get() ?? ''));
+                element.child.append(textNode);
+                let renderText = () => { textNode.textContent = String(config.text.get() ?? ''); };
+                let unsubscribe = config.text.subscribe(() => this._schedule(renderText));
+                element.onRemove(() => {
+                    this._scheduledJobs.delete(renderText);
+                    unsubscribe();
+                });
+            } else {
+                element.child.append(String(config.text));
+            }
+        }
+        let append = child => {
+            if (Array.isArray(child)) {
+                child.forEach(append);
+            } else if (child && typeof child === 'object' && !isNode(child) && !(child instanceof DomElement)) {
+                element.child.append(this.tree(child));
+            } else if (child instanceof DomElement || isNode(child) || typeof child === 'string') {
+                element.child.append(child);
+            } else if (child != null && child !== false) {
+                element.child.append(String(child));
+            }
+        };
+        if (config.children != null) append(config.children);
+        return element;
+    }
+
+    when(condition, branch, options = {}) {
+        if (!condition || typeof condition.get !== 'function' || typeof condition.subscribe !== 'function') {
+            throw new TypeError('DomSculptor.when: expected a signal condition.');
+        }
+        if (!(branch instanceof DomElement) && typeof branch !== 'function') {
+            throw new TypeError('DomSculptor.when: branch must be a DomElement or factory.');
+        }
+        if (options.fallback != null &&
+            !(options.fallback instanceof DomElement) &&
+            typeof options.fallback !== 'function') {
+            throw new TypeError('DomSculptor.when: fallback must be a DomElement or factory.');
+        }
+        let parent = options.parent;
+        if (parent == null && branch instanceof DomElement) parent = branch.parent();
+        if (parent == null) throw new Error('DomSculptor.when: a parent is required for a detached or factory branch.');
+        let parentElement = parent instanceof DomElement
+            ? parent
+            : this._wrapNode(this._resolveParent(parent).node);
+        let active = null;
+        let activeSource = Symbol('uninitialized');
+        let preserved = new Map();
+        let stopped = false;
+        if (branch instanceof DomElement && branch.html?.parentNode === parentElement.html) {
+            active = branch;
+            activeSource = branch;
+        }
+        let sourceFor = visible => visible ? branch : options.fallback;
+        let createBranch = source => {
+            if (source == null) return null;
+            if (preserved.has(source)) return preserved.get(source);
+            let element = typeof source === 'function' ? source() : source;
+            if (!(element instanceof DomElement) || !element.html) {
+                throw new TypeError('DomSculptor.when: branch factories must return a live DomElement.');
+            }
+            if (options.preserve || typeof source !== 'function') preserved.set(source, element);
+            return element;
+        };
+        let render = () => {
+            if (stopped || !parentElement.html) return;
+            let source = sourceFor(Boolean(condition.get()));
+            if (source === activeSource) return;
+            if (active?.html) {
+                if (options.preserve || typeof activeSource !== 'function') this.unmount(active);
+                else active.remove();
+            }
+            activeSource = source;
+            active = createBranch(source);
+            if (active) this.mount(active, parentElement);
+        };
+        render();
+        let unsubscribe = condition.subscribe(() => this._schedule(render));
+        let stop = () => {
+            if (stopped) return;
+            stopped = true;
+            this._scheduledJobs.delete(render);
+            unsubscribe();
+            if (active?.html) {
+                if (options.disposeOnStop === false) this.unmount(active);
+                else active.remove();
+            }
+            preserved.forEach(element => {
+                if (element !== active && element.html && element.html.parentNode == null) element.remove();
+            });
+            preserved.clear();
+        };
+        parentElement.onRemove(stop);
+        this._track(stop);
+        return stop;
     }
 
     wrap(selectorOrNode) {
         let node;
         if (typeof selectorOrNode === 'string') {
             node = document.querySelector(selectorOrNode);
-            if (!node) { console.warn(`DomSculptor.wrap: Could not find "${selectorOrNode}".`); return null; }
+            if (!node) throw new Error(`DomSculptor.wrap: could not find "${selectorOrNode}".`);
         } else if (isNode(selectorOrNode)) {
             node = selectorOrNode;
         } else {
-            console.warn('DomSculptor.wrap: Invalid argument.', selectorOrNode);
-            return null;
+            throw new TypeError('DomSculptor.wrap: expected a selector or Node.');
         }
         return this._wrapNode(node);
     }
 
+    tryWrap(selectorOrNode) {
+        try {
+            return this.wrap(selectorOrNode);
+        } catch {
+            return null;
+        }
+    }
+
     state(initial) {
+        let sculptor = this;
         let value = initial;
         let subscribers = [];
+        let disposed = false;
+        let notifying = false;
+        let pendingNotifications = [];
 
         let autoUnsub = (element, unsub) => {
             element.onRemove(unsub);
+            sculptor._track(unsub);
         };
 
         let store = {
             get() { return value; },
             set(next) {
+                if (disposed) throw new Error('DomSculptor: cannot write to a disposed signal.');
+                if (sculptor._disposalDepth) {
+                    sculptor._warn('write-during-disposal', 'A signal was written while a scope was disposing.');
+                }
                 if (Object.is(value, next)) return;
                 value = next;
-                let firstError = null;
-                subscribers.slice().forEach(fn => {
-                    try { fn(value); } catch (error) { if (!firstError) firstError = error; }
-                });
-                if (firstError) throw firstError;
+                let errors = [];
+                pendingNotifications.push(next);
+                if (notifying) return;
+                notifying = true;
+                try {
+                    while (pendingNotifications.length) {
+                        let delivered = pendingNotifications.shift();
+                        subscribers.slice().forEach(subscription => {
+                            try { subscription.callback(delivered); } catch (error) { errors.push(error); }
+                        });
+                    }
+                } finally {
+                    notifying = false;
+                }
+                throwCollectedErrors(errors, 'Multiple signal subscribers failed.');
             },
-            update(fn) { store.set(fn(value)); },
-            subscribe(fn) {
-                subscribers.push(fn);
-                return () => {
-                    let i = subscribers.indexOf(fn);
+            update(fn) {
+                if (typeof fn !== 'function') throw new TypeError('DomSculptor.signal.update: expected a function.');
+                store.set(fn(value));
+            },
+            subscribe(fn, options = {}) {
+                if (disposed) throw new Error('DomSculptor: cannot subscribe to a disposed signal.');
+                if (typeof fn !== 'function') throw new TypeError('DomSculptor.signal.subscribe: expected a function.');
+                if (options.signal?.aborted) return () => {};
+                let subscription = { callback: fn, active: true };
+                subscribers.push(subscription);
+                let unsubscribe = () => {
+                    if (!subscription.active) return;
+                    subscription.active = false;
+                    let i = subscribers.indexOf(subscription);
                     if (i > -1) subscribers.splice(i, 1);
+                    options.signal?.removeEventListener('abort', unsubscribe);
                 };
+                subscription.unsubscribe = unsubscribe;
+                options.signal?.addEventListener('abort', unsubscribe, { once: true });
+                if (options.immediate) fn(value);
+                return unsubscribe;
             },
-            bind(element, updater) {
+            bind(element, updater = null) {
+                if (!(element instanceof DomElement)) throw new TypeError('DomSculptor.signal.bind: expected a DomElement.');
+                if (updater == null || (typeof updater === 'object' && !Array.isArray(updater))) {
+                    return store.sync(element, updater || {});
+                }
+                if (typeof updater !== 'function') {
+                    throw new TypeError('DomSculptor.signal.bind: expected an updater function or binding options.');
+                }
                 updater(value, element);
-                let unsub = store.subscribe(v => updater(v, element));
-                autoUnsub(element, unsub);
+                let active = true;
+                let render = () => { if (active && element.html) updater(store.get(), element); };
+                let unsub = store.subscribe(() => sculptor._schedule(render));
+                let cleanup = () => { active = false; unsub(); sculptor._scheduledJobs.delete(render); };
+                autoUnsub(element, cleanup);
                 return element;
             },
             bindText(element, transform = v => v) {
-                return store.bind(element, v => element.setText(transform(v)));
+                if (!(element instanceof DomElement) || !element.html) {
+                    throw new TypeError('DomSculptor.signal.bindText: expected a live DomElement.');
+                }
+                if (typeof transform !== 'function') {
+                    throw new TypeError('DomSculptor.signal.bindText: transform must be a function.');
+                }
+                let initial = String(transform(value) ?? '');
+                element.setText(initial);
+                let textNode = element.html.firstChild;
+                if (!textNode || textNode.nodeType !== 3) {
+                    textNode = document.createTextNode(initial);
+                    element.html.textContent = '';
+                    element.html.appendChild(textNode);
+                }
+                let render = () => { textNode.textContent = String(transform(store.get()) ?? ''); };
+                let unsubscribe = store.subscribe(() => sculptor._schedule(render));
+                let cleanup = () => {
+                    sculptor._scheduledJobs.delete(render);
+                    unsubscribe();
+                };
+                autoUnsub(element, cleanup);
+                return element;
             },
             bindValue(element, transform = v => v) {
                 return store.bind(element, v => element.setValue(transform(v)));
@@ -472,14 +1245,132 @@ class DomSculptor {
                     else element.hide();
                 });
             },
+            bindHidden(element, transform = v => Boolean(v)) {
+                return store.bindProperty(element, 'hidden', transform);
+            },
+            bindProperty(element, name, transform = v => v) {
+                if (typeof name !== 'string' || !name) {
+                    throw new TypeError('DomSculptor.signal.bindProperty: expected a property name.');
+                }
+                return store.bind(element, v => {
+                    if (!element.html) return;
+                    element.html[name] = transform(v);
+                });
+            },
             list(container, renderFn) {
+                if (!(container instanceof DomElement)) {
+                    throw new TypeError('DomSculptor.signal.list: expected a DomElement container.');
+                }
+                if (renderFn && typeof renderFn === 'object') {
+                    let options = renderFn;
+                    if (typeof options.key !== 'function' || typeof options.render !== 'function') {
+                        throw new TypeError('DomSculptor.signal.list: keyed lists require key and render functions.');
+                    }
+                    if (options.update != null && typeof options.update !== 'function') {
+                        throw new TypeError('DomSculptor.signal.list: update must be a function.');
+                    }
+                    let records = new Map();
+                    let keysFor = items => {
+                        if (!Array.isArray(items)) throw new TypeError('DomSculptor.signal.list: expected an array value.');
+                        let keys = items.map((item, index) => options.key(item, index));
+                        if (new Set(keys).size !== keys.length) {
+                            sculptor._warn('duplicate-list-key', 'A keyed list update contained duplicate keys.', keys);
+                            throw new TypeError('DomSculptor.signal.list: duplicate keys are not allowed.');
+                        }
+                        return keys;
+                    };
+                    let renderKeyed = items => {
+                        let keys = keysFor(items);
+                        let ownerDocument = container.html.ownerDocument ||
+                            (typeof document !== 'undefined' ? document : null);
+                        let focused = ownerDocument?.activeElement || null;
+                        let selection = focused && typeof focused.selectionStart === 'number'
+                            ? {
+                                start: focused.selectionStart,
+                                end: focused.selectionEnd,
+                                direction: focused.selectionDirection
+                            }
+                            : null;
+
+                        let errors = [];
+                        let nextRecords = new Map();
+                        items.forEach((item, index) => {
+                            let key = keys[index];
+                            let record = records.get(key);
+                            try {
+                                if (record) {
+                                    options.update?.(record.element, item, index);
+                                    record.item = item;
+                                } else {
+                                    let element = options.render(item, index);
+                                    if (!(element instanceof DomElement) || !element.html) {
+                                        throw new TypeError('DomSculptor.signal.list: render must return a live DomElement.');
+                                    }
+                                    record = { element, item };
+                                }
+                                nextRecords.set(key, record);
+                            } catch (error) {
+                                errors.push(error);
+                                if (record) nextRecords.set(key, record);
+                            }
+                        });
+
+                        records.forEach((record, key) => {
+                            if (nextRecords.has(key)) return;
+                            try { record.element.remove(); } catch (error) { errors.push(error); }
+                        });
+
+                        let ordered = Array.from(nextRecords.values(), record => record.element);
+                        ordered.forEach((element, index) => {
+                            if (!element.html) return;
+                            let reference = container.html.childNodes[index] || null;
+                            if (reference !== element.html) container.html.insertBefore(element.html, reference);
+                            element._detachFromParent();
+                            element._parent = container;
+                            element._notifyMount();
+                        });
+                        container._children = ordered.filter(element => element.html);
+                        records = nextRecords;
+                        if (focused?.isConnected && ownerDocument?.activeElement !== focused &&
+                            typeof focused.focus === 'function') {
+                            try {
+                                focused.focus({ preventScroll: true });
+                                if (selection && typeof focused.setSelectionRange === 'function') {
+                                    focused.setSelectionRange(
+                                        selection.start,
+                                        selection.end,
+                                        selection.direction || undefined
+                                    );
+                                }
+                            } catch (error) {
+                                errors.push(error);
+                            }
+                        }
+                        throwCollectedErrors(errors, 'Multiple keyed list operations failed.');
+                    };
+                    renderKeyed(value);
+                    let renderLatest = () => renderKeyed(store.get());
+                    let unsubscribe = store.subscribe(items => {
+                        keysFor(items);
+                        sculptor._schedule(renderLatest);
+                    });
+                    let cleanup = () => {
+                        sculptor._scheduledJobs.delete(renderLatest);
+                        unsubscribe();
+                    };
+                    autoUnsub(container, cleanup);
+                    return container;
+                }
+                if (typeof renderFn !== 'function') {
+                    throw new TypeError('DomSculptor.signal.list: expected a render function.');
+                }
                 let elements = [];
                 let render = (items) => {
                     let firstError = null;
                     elements.forEach(el => {
                         try { el.remove(); } catch (error) { if (!firstError) firstError = error; }
                     });
-                    container.children = container.children.filter(c => c.html !== null);
+                    container._children = container._children.filter(c => c.html !== null);
                     let nextElements = [];
                     items.forEach((item, i) => {
                         try {
@@ -498,180 +1389,502 @@ class DomSculptor {
                 autoUnsub(container, unsub);
                 return container;
             },
-            sync(element, transform = v => v) {
-                element.setValue(value);
-                element.on('input', e => store.set(transform(e.target.value)));
-                let unsub = store.subscribe(v => element.setValue(v));
-                autoUnsub(element, unsub);
+            sync(element, options = {}) {
+                if (!(element instanceof DomElement) || !element.html) {
+                    throw new TypeError('DomSculptor.signal.sync: expected a live DomElement.');
+                }
+                if (typeof options === 'function') options = { parse: options };
+                if (!options || typeof options !== 'object') {
+                    throw new TypeError('DomSculptor.signal.sync: options must be a function or object.');
+                }
+                let node = element.html;
+                let tagName = String(node.tagName || '').toLowerCase();
+                let type = String(node.type || '').toLowerCase();
+                if (!['input', 'textarea', 'select'].includes(tagName) &&
+                    typeof options.get !== 'function' && typeof options.set !== 'function' &&
+                    !('value' in node)) {
+                    sculptor._warn(
+                        'incompatible-input-binding',
+                        'Two-way binding was attached to an element without a value property.',
+                        node
+                    );
+                }
+                let composing = false;
+                let read = () => {
+                    if (typeof options.get === 'function') return options.get(node);
+                    if (tagName === 'select' && (node.multiple || options.multiple)) {
+                        return Array.from(node.selectedOptions || [], option => option.value);
+                    }
+                    if (type === 'checkbox') {
+                        if (Array.isArray(store.get()) || options.group) {
+                            let current = Array.isArray(store.get()) ? store.get() : [];
+                            return node.checked
+                                ? Array.from(new Set([...current, node.value]))
+                                : current.filter(item => !Object.is(String(item), String(node.value)));
+                        }
+                        return Boolean(node.checked);
+                    }
+                    if (type === 'radio') return node.checked ? node.value : store.get();
+                    if ((type === 'number' || type === 'range') && options.parse == null) {
+                        return node.value === '' ? null : Number(node.value);
+                    }
+                    let next = node.value;
+                    return typeof options.parse === 'function' ? options.parse(next, node) : next;
+                };
+                let write = next => {
+                    if (typeof options.set === 'function') {
+                        options.set(node, next);
+                        return;
+                    }
+                    if (tagName === 'select' && (node.multiple || options.multiple)) {
+                        let selected = new Set(Array.isArray(next) ? next.map(String) : []);
+                        Array.from(node.options || []).forEach(option => {
+                            option.selected = selected.has(String(option.value));
+                        });
+                        return;
+                    }
+                    if (type === 'checkbox') {
+                        let checked = Array.isArray(next)
+                            ? next.some(item => Object.is(String(item), String(node.value)))
+                            : Boolean(next);
+                        if (node.checked !== checked) node.checked = checked;
+                        return;
+                    }
+                    if (type === 'radio') {
+                        let checked = Object.is(String(next), String(node.value));
+                        if (node.checked !== checked) node.checked = checked;
+                        return;
+                    }
+                    let desired = next == null ? '' : String(next);
+                    if (node.value !== desired) node.value = desired;
+                };
+                write(value);
+                let updateFromElement = () => {
+                    if (!composing) store.set(read());
+                };
+                let eventName = options.event ||
+                    (type === 'checkbox' || type === 'radio' || tagName === 'select' ? 'change' : 'input');
+                element.on(eventName, updateFromElement);
+                element.on('compositionstart', () => { composing = true; });
+                element.on('compositionend', () => {
+                    composing = false;
+                    updateFromElement();
+                });
+                let render = () => {
+                    if (!composing && element.html) write(store.get());
+                };
+                let unsub = store.subscribe(() => sculptor._schedule(render));
+                let cleanup = () => {
+                    unsub();
+                    sculptor._scheduledJobs.delete(render);
+                };
+                autoUnsub(element, cleanup);
                 return element;
+            },
+            dispose() {
+                if (disposed) return;
+                if (subscribers.length) {
+                    sculptor._warn(
+                        'subscription-cleanup',
+                        `Disposed a signal with ${subscribers.length} active subscription(s).`
+                    );
+                }
+                disposed = true;
+                subscribers.slice().forEach(subscription => subscription.unsubscribe());
+                pendingNotifications = [];
+            },
+            get disposed() {
+                return disposed;
             }
         };
+        this._track(() => store.dispose());
         return store;
+    }
+
+    signal(initial) {
+        return this.state(initial);
+    }
+
+    computed(compute, dependencies = []) {
+        if (typeof compute !== 'function') throw new TypeError('DomSculptor.computed: expected a function.');
+        if (!Array.isArray(dependencies)) throw new TypeError('DomSculptor.computed: dependencies must be an array.');
+        dependencies.forEach(dependency => {
+            if (!dependency || typeof dependency.subscribe !== 'function') {
+                throw new TypeError('DomSculptor.computed: every dependency must be a signal.');
+            }
+        });
+
+        let output = this.state(undefined);
+        let initialized = false;
+        let evaluating = false;
+        let disposed = false;
+        let evaluate = () => {
+            if (disposed) throw new Error('DomSculptor: cannot read a disposed computed signal.');
+            if (evaluating) throw new Error('DomSculptor.computed: cycle detected.');
+            evaluating = true;
+            try {
+                let next = compute();
+                if (!initialized || !Object.is(output.get(), next)) {
+                    initialized = true;
+                    output.set(next);
+                }
+                return output.get();
+            } finally {
+                evaluating = false;
+            }
+        };
+        let unsubscribers = dependencies.map(dependency => dependency.subscribe(() => {
+            if (initialized) evaluate();
+        }));
+
+        let computed = {
+            get() {
+                if (disposed) throw new Error('DomSculptor: cannot read a disposed computed signal.');
+                return initialized ? output.get() : evaluate();
+            },
+            subscribe(callback, options = {}) {
+                if (!initialized) evaluate();
+                return output.subscribe(callback, options);
+            },
+            dispose() {
+                if (disposed) return;
+                disposed = true;
+                unsubscribers.forEach(unsubscribe => unsubscribe());
+                output.dispose();
+            },
+            get disposed() { return disposed; }
+        };
+        this._track(() => computed.dispose());
+        return computed;
+    }
+
+    effect(run, dependencies = []) {
+        if (typeof run !== 'function') throw new TypeError('DomSculptor.effect: expected a function.');
+        if (!Array.isArray(dependencies)) throw new TypeError('DomSculptor.effect: dependencies must be an array.');
+        dependencies.forEach(dependency => {
+            if (!dependency || typeof dependency.subscribe !== 'function') {
+                throw new TypeError('DomSculptor.effect: every dependency must be a signal.');
+            }
+        });
+        let active = true;
+        let cleanup = null;
+        let execute = () => {
+            if (!active) return;
+            if (cleanup) {
+                let previousCleanup = cleanup;
+                cleanup = null;
+                previousCleanup();
+            }
+            let nextCleanup = run();
+            if (nextCleanup != null && typeof nextCleanup !== 'function') {
+                throw new TypeError('DomSculptor.effect: cleanup must be a function.');
+            }
+            cleanup = nextCleanup || null;
+        };
+        let unsubscribers = dependencies.map(dependency => dependency.subscribe(() => this._schedule(execute)));
+        execute();
+        let stop = () => {
+            if (!active) return;
+            active = false;
+            this._scheduledJobs.delete(execute);
+            unsubscribers.forEach(unsubscribe => unsubscribe());
+            if (cleanup) {
+                let finalCleanup = cleanup;
+                cleanup = null;
+                finalCleanup();
+            }
+        };
+        this._track(stop);
+        return stop;
+    }
+
+    batch(callback) {
+        if (typeof callback !== 'function') throw new TypeError('DomSculptor.batch: expected a function.');
+        this._batchDepth++;
+        try { return callback(); }
+        finally {
+            this._batchDepth--;
+            this._requestFlush();
+        }
+    }
+
+    flush() {
+        return this._flushJobs();
     }
 
     asyncState(initialData = null) {
         let state = this.state({ status: 'idle', data: initialData, error: null });
         let lastTask = null;
         let runId = 0;
+        let controller = null;
 
         let api = {
             get: state.get,
             subscribe: state.subscribe,
-            run(task = lastTask) {
+            run(task = lastTask, options = {}) {
                 if (typeof task !== 'function' && !(task && typeof task.then === 'function')) {
                     return Promise.reject(new TypeError('DomSculptor.asyncState.run: expected a function or Promise.'));
                 }
                 lastTask = task;
                 let currentRun = ++runId;
                 let current = state.get();
-                state.set({ status: 'loading', data: current.data, error: null });
+                if (options.abortPrevious !== false) controller?.abort();
+                let currentController = new AbortController();
+                controller = currentController;
+                state.set({
+                    status: current.data == null ? 'loading' : 'refreshing',
+                    data: current.data,
+                    error: null
+                });
 
                 return Promise.resolve()
-                    .then(() => typeof task === 'function' ? task() : task)
+                    .then(() => typeof task === 'function' ? task({ signal: currentController.signal }) : task)
                     .then(data => {
                         if (currentRun === runId) state.set({ status: 'success', data, error: null });
                         return data;
                     })
                     .catch(error => {
-                        if (currentRun === runId) state.set({ status: 'error', data: state.get().data, error });
+                        if (currentRun === runId && error?.name !== 'AbortError') {
+                            state.set({ status: 'error', data: state.get().data, error });
+                        }
                         throw error;
                     });
             },
-            retry() { return api.run(lastTask); }
+            retry() { return api.run(lastTask); },
+            cancel() {
+                runId++;
+                controller?.abort();
+                controller = null;
+                let current = state.get();
+                state.set({
+                    status: current.data == null ? 'idle' : 'success',
+                    data: current.data,
+                    error: null
+                });
+            },
+            reset() {
+                runId++;
+                controller?.abort();
+                controller = null;
+                state.set({ status: 'idle', data: initialData, error: null });
+            }
         };
 
+        this._track(() => {
+            if (!state.disposed) api.cancel();
+            state.dispose();
+        });
         return api;
     }
 
     data(initial = {}) {
-        let values = Object.assign(
-            Object.create(null),
-            typeof initial === 'object' && initial !== null ? initial : {}
-        );
-        let listeners = new Map();
+        let sculptor = this;
+        if (typeof initial !== 'object' || initial === null || Array.isArray(initial)) {
+            throw new TypeError('DomSculptor.data: initial value must be an object.');
+        }
+        let signals = new Map();
+        Object.keys(initial).forEach(key => signals.set(key, sculptor.state(initial[key])));
+        let keyListeners = new Map();
         let anyListeners = [];
+        let disposed = false;
 
-        let notify = (key, next, previous) => {
-            let keyListeners = listeners.get(key) || [];
-            let firstError = null;
-            keyListeners.slice().forEach(fn => {
-                try { fn(next, previous, key); } catch (error) { if (!firstError) firstError = error; }
-            });
-            anyListeners.slice().forEach(fn => {
-                try { fn(key, next, previous); } catch (error) { if (!firstError) firstError = error; }
-            });
-            if (firstError) throw firstError;
+        let ensureSignal = key => {
+            if (!signals.has(key)) signals.set(key, sculptor.state(undefined));
+            return signals.get(key);
         };
 
         let api = {
             get(key = null) {
-                if (key == null) return { ...values };
-                return values[key];
+                if (key == null) {
+                    return Object.fromEntries(Array.from(signals, ([name, signal]) => [name, signal.get()]));
+                }
+                return signals.get(key)?.get();
             },
             set(key, value) {
+                if (disposed) throw new Error('DomSculptor: cannot write to a disposed data store.');
+                if (sculptor._disposalDepth) {
+                    sculptor._warn('write-during-disposal', 'A data store was written while a scope was disposing.');
+                }
                 if (typeof key === 'object' && key !== null) {
-                    let firstError = null;
+                    let errors = [];
                     for (let name in key) {
                         if (!Object.hasOwnProperty.call(key, name)) continue;
-                        try { api.set(name, key[name]); } catch (error) { if (!firstError) firstError = error; }
+                        try { api.set(name, key[name]); } catch (error) { errors.push(error); }
                     }
-                    if (firstError) throw firstError;
+                    throwCollectedErrors(errors, 'Multiple data store updates failed.');
                     return api;
                 }
 
                 if (typeof key !== 'string') {
-                    console.warn('DomSculptor.data.set: key must be a string.', key);
-                    return api;
+                    throw new TypeError('DomSculptor.data.set: key must be a string.');
                 }
 
-                let previous = values[key];
+                let signal = ensureSignal(key);
+                let previous = signal.get();
                 if (Object.is(previous, value)) return api;
 
-                values[key] = value;
-                notify(key, value, previous);
+                let errors = [];
+                try { signal.set(value); } catch (error) { errors.push(error); }
+                anyListeners.slice().forEach(listener => {
+                    try { listener.callback(key, value, previous); } catch (error) { errors.push(error); }
+                });
+                throwCollectedErrors(errors, 'Multiple data store subscribers failed.');
                 return api;
             },
             update(key, fn) {
                 if (typeof fn !== 'function') {
-                    console.warn('DomSculptor.data.update: updater must be a function.');
-                    return api;
+                    throw new TypeError('DomSculptor.data.update: updater must be a function.');
                 }
-                return api.set(key, fn(values[key], key));
+                return api.set(key, fn(api.get(key), key));
             },
             onChange(key, callback, options = {}) {
+                if (disposed) throw new Error('DomSculptor: cannot subscribe to a disposed data store.');
                 if (typeof key !== 'string' || typeof callback !== 'function') {
-                    console.warn('DomSculptor.data.onChange: expected a string key and callback function.');
-                    return () => {};
+                    throw new TypeError('DomSculptor.data.onChange: expected a string key and callback function.');
                 }
+                if (options.signal?.aborted) return () => {};
 
-                if (!listeners.has(key)) listeners.set(key, []);
-                listeners.get(key).push(callback);
+                let signal = ensureSignal(key);
+                let previous = signal.get();
+                let record = { callback, active: true, unsubscribeSignal: null };
+                let wrapped = next => {
+                    let prior = previous;
+                    previous = next;
+                    callback(next, prior, key);
+                };
+                record.unsubscribeSignal = signal.subscribe(wrapped);
+                if (!keyListeners.has(key)) keyListeners.set(key, []);
+                keyListeners.get(key).push(record);
+                let unsubscribe = () => {
+                    if (!record.active) return;
+                    record.active = false;
+                    record.unsubscribeSignal();
+                    let remaining = (keyListeners.get(key) || []).filter(item => item !== record);
+                    if (remaining.length) keyListeners.set(key, remaining);
+                    else keyListeners.delete(key);
+                    options.signal?.removeEventListener('abort', unsubscribe);
+                };
+                record.unsubscribe = unsubscribe;
+                options.signal?.addEventListener('abort', unsubscribe, { once: true });
 
-                if (options.immediate) callback(values[key], undefined, key);
+                if (options.immediate) callback(signal.get(), undefined, key);
 
-                return () => api.offChange(key, callback);
+                return unsubscribe;
             },
             offChange(key, callback = null) {
-                if (!listeners.has(key)) return api;
-
-                if (callback) {
-                    let nextListeners = listeners.get(key).filter(fn => fn !== callback);
-                    if (nextListeners.length) listeners.set(key, nextListeners);
-                    else listeners.delete(key);
-                } else {
-                    listeners.delete(key);
-                }
-
+                let records = keyListeners.get(key) || [];
+                records.slice().forEach(record => {
+                    if (callback == null || record.callback === callback) record.unsubscribe();
+                });
                 return api;
             },
             onAnyChange(callback, options = {}) {
+                if (disposed) throw new Error('DomSculptor: cannot subscribe to a disposed data store.');
                 if (typeof callback !== 'function') {
-                    console.warn('DomSculptor.data.onAnyChange: callback must be a function.');
-                    return () => {};
+                    throw new TypeError('DomSculptor.data.onAnyChange: callback must be a function.');
                 }
+                if (options.signal?.aborted) return () => {};
 
-                anyListeners.push(callback);
+                let record = { callback, active: true };
+                anyListeners.push(record);
 
                 if (options.immediate) {
-                    Object.keys(values).forEach(key => callback(key, values[key], undefined));
+                    signals.forEach((signal, key) => callback(key, signal.get(), undefined));
                 }
 
-                return () => {
-                    let i = anyListeners.indexOf(callback);
+                let unsubscribe = () => {
+                    if (!record.active) return;
+                    record.active = false;
+                    let i = anyListeners.indexOf(record);
                     if (i > -1) anyListeners.splice(i, 1);
+                    options.signal?.removeEventListener('abort', unsubscribe);
                 };
+                record.unsubscribe = unsubscribe;
+                options.signal?.addEventListener('abort', unsubscribe, { once: true });
+                return unsubscribe;
+            },
+            dispose() {
+                if (disposed) return;
+                let listenerCount = anyListeners.length;
+                keyListeners.forEach(records => { listenerCount += records.length; });
+                if (listenerCount) {
+                    sculptor._warn(
+                        'subscription-cleanup',
+                        `Disposed a data store with ${listenerCount} active subscription(s).`
+                    );
+                }
+                disposed = true;
+                keyListeners.forEach(records => records.slice().forEach(record => record.unsubscribe()));
+                keyListeners.clear();
+                anyListeners.slice().forEach(record => record.unsubscribe());
+                signals.forEach(signal => signal.dispose());
+            },
+            get disposed() {
+                return disposed;
             }
         };
 
+        this._track(() => api.dispose());
         return api;
     }
 
-    jsontohtml(config) {
-        if (typeof config !== 'object' || config === null) throw new Error('DomSculptor.jsontohtml: config must be a valid object.');
-        if (!config.type) throw new Error('DomSculptor.jsontohtml: Must specify "type".');
-        if (!config.parent) throw new Error('DomSculptor.jsontohtml: Must specify "parent".');
-
-        let element = this.create(config.type, config.parent);
-
-        if (config.attributes && typeof config.attributes === 'object') element.attribute.set(config.attributes);
-        if (Array.isArray(config.class)) element.class.add(...config.class);
-        if (typeof config.text === 'string') element.setText(config.text);
-        if (typeof config.oncreate === 'function') config.oncreate(element);
-
-        if (Array.isArray(config.children)) {
-            config.children.forEach(child => {
-                if (typeof child === 'object' && child !== null) {
-                    this.jsontohtml({ ...child, parent: element });
-                } else if (typeof child === 'string') {
-                    element.child.append(child);
-                } else {
-                    console.warn('DomSculptor.jsontohtml: Invalid child configuration.', child);
-                }
-            });
-        }
-
-        return element;
+    store(initial = {}) {
+        return this.data(initial);
     }
 }
 
+class DevDomSculptor extends DomSculptor {
+    constructor(options = {}) {
+        super({ ...options, development: true });
+    }
+
+    reportLeaks() {
+        this._activeComponents.forEach(component => {
+            this._warn(
+                'component-scope-leak',
+                `Component "${component.name}" still has an active scope. Dispose it when it is no longer needed.`,
+                { component, name: component.name, createdAt: component.createdAt }
+            );
+        });
+        return this._activeComponents.size;
+    }
+}
+
+let defaultSculptor = new DomSculptor();
+let signal = initial => defaultSculptor.signal(initial);
+let state = initial => defaultSculptor.state(initial);
+let store = (initial = {}) => defaultSculptor.store(initial);
+let data = (initial = {}) => defaultSculptor.data(initial);
+let computed = (compute, dependencies = []) => defaultSculptor.computed(compute, dependencies);
+let effect = (run, dependencies = []) => defaultSculptor.effect(run, dependencies);
+let batch = callback => defaultSculptor.batch(callback);
+let flush = () => defaultSculptor.flush();
+let tree = config => defaultSculptor.tree(config);
+let when = (condition, branch, options = {}) => defaultSculptor.when(condition, branch, options);
+let mount = (value, parent) => defaultSculptor.mount(value, parent);
+let unmount = value => defaultSculptor.unmount(value);
+let asyncState = initialData => defaultSculptor.asyncState(initialData);
+let createDevSculptor = options => new DevDomSculptor(options);
+let errorBoundary = (componentFactory, fallback) =>
+    defaultSculptor.errorBoundary(componentFactory, fallback);
+
+export {
+    DomElement,
+    DevDomSculptor,
+    signal,
+    state,
+    store,
+    data,
+    computed,
+    effect,
+    batch,
+    flush,
+    tree,
+    when,
+    mount,
+    unmount,
+    asyncState,
+    errorBoundary,
+    createDevSculptor
+};
 export default DomSculptor;

@@ -5,6 +5,8 @@
 <pre id="result">running</pre>
 <script type="module">
 import DomSculptor from '../src/index.js';
+import { createLazyComponent } from '../lazy/index.js';
+import BrowserDomSculptor from '../dist/domsculptor.esm.min.js';
 
 let assertions = 0;
 let assert = (condition, message) => {
@@ -13,8 +15,39 @@ let assert = (condition, message) => {
 };
 
 try {
+    assert(typeof BrowserDomSculptor === 'function', 'browser ESM default export did not resolve');
     let sculptor = new DomSculptor();
+    let failedBoundarySignal;
+    let BrokenBrowserComponent = sculptor.component(() => {
+        failedBoundarySignal = sculptor.signal('owned');
+        throw new Error('browser boundary failure');
+    });
+    let SafeBrowserComponent = sculptor.errorBoundary(
+        BrokenBrowserComponent,
+        error => sculptor.create('p').setText(error.message)
+    );
+    let safeBrowserInstance = SafeBrowserComponent({});
+    assert(
+        safeBrowserInstance.root.html.textContent === 'browser boundary failure',
+        'browser component boundary did not render its fallback'
+    );
+    assert(failedBoundarySignal.disposed, 'browser component boundary leaked its failed scope');
+    safeBrowserInstance.dispose();
+
+    let BrowserLazy = createLazyComponent(
+        sculptor,
+        async () => sculptor.component(() => sculptor.create('strong').setText('lazy ready')),
+        { loading: 'lazy loading' }
+    );
+    let lazyInstance = BrowserLazy({});
+    sculptor.mount(lazyInstance, document.body);
+    assert(lazyInstance.root.html.textContent === 'lazy loading', 'lazy loading fallback was not rendered');
+    await new Promise(resolve => setTimeout(resolve));
+    assert(lazyInstance.root.html.textContent === 'lazy ready', 'lazy browser component did not resolve');
+    lazyInstance.dispose();
+
     let parent = sculptor.create('div');
+    sculptor.mount(parent, document.body);
     let first = parent.child.create('span').setText('first');
     let second = parent.child.create('span').setText('second');
     let third = parent.child.create('span').setText('third');
@@ -116,8 +149,30 @@ try {
     let mounted = sculptor.create('section')
         .onMount(() => lifecycle.push('mount'))
         .onRemove(() => lifecycle.push('remove'));
+    sculptor.mount(mounted, document.body);
     mounted.remove();
     assert(lifecycle.join(',') === 'mount,remove', 'lifecycle hooks ran incorrectly');
+
+    let temporary = sculptor.create('div');
+    let temporaryChild = temporary.child.create('button').class.add('delegated');
+    let lifecycleOrder = [];
+    let delegatedCalls = 0;
+    temporaryChild.onUnmount(() => lifecycleOrder.push('child-unmount'));
+    temporary.onUnmount(() => lifecycleOrder.push('parent-unmount'));
+    temporaryChild.onDispose(() => lifecycleOrder.push('child-dispose'));
+    temporary.onDispose(() => lifecycleOrder.push('parent-dispose'));
+    temporary.on('click', '.delegated', () => delegatedCalls++);
+    sculptor.mount(temporary, document.body);
+    temporaryChild.html.click();
+    sculptor.unmount(temporary);
+    sculptor.mount(temporary, document.body);
+    temporaryChild.html.click();
+    assert(delegatedCalls === 2, 'unmount destroyed delegated listeners');
+    temporary.dispose();
+    assert(
+        lifecycleOrder.join(',') === 'child-unmount,parent-unmount,child-dispose,parent-dispose',
+        'unmount/dispose lifecycle order was incorrect'
+    );
 
     let value = sculptor.state('ready');
     let bound = sculptor.create('input');
@@ -126,7 +181,238 @@ try {
     value.bindAttribute(bound, 'data-state');
     assert(bound.getValue() === 'ready' && bound.class.contains('active'), 'initial direct binding failed');
     value.set('done');
+    sculptor.flush();
     assert(bound.getValue() === 'done' && !bound.class.contains('active') && bound.attribute.get('data-state') === 'done', 'binding update failed');
+
+    let firstName = sculptor.signal('Ada');
+    let lastName = sculptor.signal('Lovelace');
+    let fullName = sculptor.computed(() => `${firstName.get()} ${lastName.get()}`, [firstName, lastName]);
+    let effectRuns = 0;
+    let stopEffect = sculptor.effect(() => {
+        fullName.get();
+        effectRuns++;
+    }, [fullName]);
+    sculptor.batch(() => {
+        firstName.set('Grace');
+        lastName.set('Hopper');
+    });
+    sculptor.flush();
+    assert(fullName.get() === 'Grace Hopper' && effectRuns === 2, 'computed/effect batching failed');
+    stopEffect();
+    fullName.dispose();
+
+    let keyedItems = sculptor.signal([
+        { id: 1, value: 'first' },
+        { id: 2, value: 'second' },
+        { id: 3, value: 'third' }
+    ]);
+    let keyedList = sculptor.create('ul');
+    sculptor.mount(keyedList, document.body);
+    keyedItems.list(keyedList, {
+        key: item => item.id,
+        render: item => {
+            let row = sculptor.createDetached('li');
+            row.child.append(sculptor.createDetached('input').setValue(item.value));
+            return row;
+        }
+    });
+    let focusedInput = keyedList.children[1].child.find('input').html;
+    focusedInput.focus();
+    focusedInput.setSelectionRange(1, 4);
+    keyedItems.set([
+        { id: 3, value: 'third' },
+        { id: 2, value: 'second' },
+        { id: 1, value: 'first' }
+    ]);
+    sculptor.flush();
+    assert(keyedList.children[1].child.find('input').html === focusedInput, 'keyed reorder replaced a stable node');
+    assert(document.activeElement === focusedInput, 'keyed reorder lost focus');
+    assert(focusedInput.selectionStart === 1 && focusedInput.selectionEnd === 4, 'keyed reorder lost selection');
+
+    let formValue = sculptor.signal('Ada');
+    let formInput = sculptor.create('input');
+    sculptor.mount(formInput, document.body);
+    formValue.bind(formInput);
+    formInput.html.focus();
+    formInput.html.setSelectionRange(1, 1);
+    formValue.set('Ada');
+    sculptor.flush();
+    assert(formInput.html.selectionStart === 1, 'equal form state write moved the caret');
+    formInput.html.value = 'Grace';
+    formInput.html.dispatchEvent(new InputEvent('input', { bubbles: true, data: 'e' }));
+    assert(formValue.get() === 'Grace', 'text input did not update its signal');
+
+    let selectedTags = sculptor.signal(['a']);
+    let multiSelect = sculptor.create('select');
+    multiSelect.html.multiple = true;
+    multiSelect.html.append(new Option('A', 'a'), new Option('B', 'b'));
+    selectedTags.bind(multiSelect);
+    multiSelect.html.options[0].selected = false;
+    multiSelect.html.options[1].selected = true;
+    multiSelect.html.dispatchEvent(new Event('change', { bubbles: true }));
+    assert(selectedTags.get().join(',') === 'b', 'multiple select binding failed');
+
+    let focusButton = sculptor.create('button');
+    sculptor.mount(focusButton, document.body);
+    focusButton.focus({ preventScroll: true });
+    assert(focusButton.isFocused(), 'focus helper did not focus the element');
+    focusButton.blur();
+    assert(!focusButton.isFocused(), 'blur helper did not release focus');
+    let hiddenState = sculptor.signal(false);
+    hiddenState.bindHidden(focusButton);
+    hiddenState.set(true);
+    sculptor.flush();
+    assert(focusButton.html.hidden === true, 'hidden binding did not update the native property');
+
+    let unsafeText = '<img src=x onerror=window.__unsafeTree=true>';
+    let safeTree = sculptor.tree({ tag: 'div', text: unsafeText });
+    sculptor.mount(safeTree, document.body);
+    assert(
+        safeTree.html.textContent === unsafeText && safeTree.html.querySelector('img') === null && !window.__unsafeTree,
+        'tree text accepted unsafe HTML'
+    );
+
+    let svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    let circleNode = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    svgNode.appendChild(circleNode);
+    document.body.appendChild(svgNode);
+    let svg = sculptor.wrap(svgNode);
+    let circle = sculptor.wrap(circleNode);
+    circle.attribute.set({ cx: 12, cy: 8 });
+    assert(svg.child.find('circle') === circle && circle.attribute.get('cx') === '12', 'SVG wrapping or attributes failed');
+
+    let fragment = document.createDocumentFragment();
+    let fragmentChild = document.createElement('mark');
+    fragment.appendChild(fragmentChild);
+    let fragmentHost = sculptor.create('div');
+    fragmentHost.child.append(fragment);
+    assert(fragmentHost.html.firstChild === fragmentChild && fragment.childNodes.length === 0, 'DocumentFragment insertion failed');
+
+    if (!customElements.get('dom-sculptor-test')) {
+        customElements.define('dom-sculptor-test', class extends HTMLElement {
+            connectedCallback() { this.dataset.connected = 'yes'; }
+        });
+    }
+    let customNode = document.createElement('dom-sculptor-test');
+    let custom = sculptor.adopt(customNode);
+    sculptor.mount(custom, document.body);
+    assert(custom.html.dataset.connected === 'yes' && sculptor.wrap(customNode) === custom, 'custom element adoption failed');
+
+    let shadowHost = sculptor.create('div');
+    let shadowRoot = shadowHost.html.attachShadow({ mode: 'open' });
+    let shadowButton = document.createElement('button');
+    shadowButton.className = 'inside-shadow';
+    shadowRoot.appendChild(shadowButton);
+    let outsideShadowCalls = 0;
+    let insideShadowCalls = 0;
+    shadowHost.on('click', '.inside-shadow', () => outsideShadowCalls++);
+    sculptor.wrap(shadowRoot).on('click', '.inside-shadow', () => insideShadowCalls++);
+    shadowButton.click();
+    assert(outsideShadowCalls === 0 && insideShadowCalls === 1, 'delegation crossed a shadow boundary incorrectly');
+
+    let eventParent = sculptor.create('div');
+    let eventChild = eventParent.child.create('button');
+    let eventOrder = [];
+    let onceCalls = 0;
+    eventParent.on('click', () => eventOrder.push('capture'), { capture: true, passive: true });
+    eventChild.on('click', () => eventOrder.push('bubble'));
+    eventChild.once('click', () => onceCalls++);
+    eventChild.html.click();
+    eventChild.html.click();
+    assert(eventOrder.join(',') === 'capture,bubble,capture,bubble' && onceCalls === 1, 'capture/passive/once event options failed');
+    let eventController = new AbortController();
+    let abortedEventCalls = 0;
+    eventChild.on('click', () => abortedEventCalls++, { signal: eventController.signal });
+    eventController.abort();
+    eventChild.html.click();
+    assert(abortedEventCalls === 0 && eventChild._listeners.click.length === 1, 'aborted event listener retained its callback');
+
+    let checkboxValue = sculptor.signal(false);
+    let checkbox = sculptor.create('input');
+    checkbox.html.type = 'checkbox';
+    checkboxValue.bind(checkbox);
+    checkbox.html.checked = true;
+    checkbox.html.dispatchEvent(new Event('change', { bubbles: true }));
+    assert(checkboxValue.get() === true, 'checkbox binding failed in a browser');
+    checkboxValue.set(false);
+    sculptor.flush();
+    assert(checkbox.html.checked === false, 'checkbox state did not update the control');
+
+    let radioValue = sculptor.signal('first');
+    let firstRadio = sculptor.create('input');
+    let secondRadio = sculptor.create('input');
+    firstRadio.html.type = secondRadio.html.type = 'radio';
+    firstRadio.html.name = secondRadio.html.name = 'browser-radio';
+    firstRadio.html.value = 'first';
+    secondRadio.html.value = 'second';
+    radioValue.bind(firstRadio);
+    radioValue.bind(secondRadio);
+    secondRadio.html.checked = true;
+    secondRadio.html.dispatchEvent(new Event('change', { bubbles: true }));
+    sculptor.flush();
+    assert(radioValue.get() === 'second' && !firstRadio.html.checked && secondRadio.html.checked, 'radio binding failed in a browser');
+
+    let textareaValue = sculptor.signal('first');
+    let textarea = sculptor.create('textarea');
+    textareaValue.bind(textarea);
+    textarea.html.value = 'second';
+    textarea.html.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    assert(textareaValue.get() === 'second', 'textarea binding failed in a browser');
+
+    let dateValue = sculptor.signal('2026-07-25');
+    let dateInput = sculptor.create('input');
+    dateInput.html.type = 'date';
+    dateValue.bind(dateInput);
+    dateInput.html.value = '2026-08-01';
+    dateInput.html.dispatchEvent(new Event('input', { bubbles: true }));
+    assert(dateValue.get() === '2026-08-01', 'date input binding failed in a browser');
+
+    let timeValue = sculptor.signal('09:30');
+    let timeInput = sculptor.create('input');
+    timeInput.html.type = 'time';
+    timeValue.bind(timeInput);
+    timeInput.html.value = '10:45';
+    timeInput.html.dispatchEvent(new Event('input', { bubbles: true }));
+    assert(timeValue.get() === '10:45', 'time input binding failed in a browser');
+
+    let componentCleanup = 0;
+    let BrowserCounter = sculptor.component(props => {
+        let componentCount = sculptor.signal(props.initial);
+        return {
+            root: sculptor.tree({
+                tag: 'button',
+                text: componentCount,
+                on: { click: () => componentCount.update(value => value + 1) }
+            }),
+            api: { count: componentCount },
+            dispose: () => componentCleanup++
+        };
+    });
+    let browserCounter = BrowserCounter({ initial: 4 });
+    sculptor.mount(browserCounter, document.body);
+    browserCounter.root.html.click();
+    sculptor.flush();
+    assert(browserCounter.root.html.textContent === '5', 'component signal did not render');
+    browserCounter.dispose();
+    assert(browserCounter.root.html === null && browserCounter.api.count.disposed, 'component scope did not dispose resources');
+    assert(componentCleanup === 1, 'component custom cleanup did not run exactly once');
+
+    let componentFragment = document.createDocumentFragment();
+    let fragmentFirst = sculptor.createDetached('span').setText('first');
+    let fragmentSecond = document.createElement('strong');
+    fragmentSecond.textContent = 'second';
+    componentFragment.append(fragmentFirst.html, fragmentSecond);
+    let FragmentComponent = sculptor.component(() => ({ root: componentFragment }));
+    let fragmentComponent = FragmentComponent();
+    let fragmentParent = sculptor.create('div');
+    sculptor.mount(fragmentComponent, fragmentParent);
+    assert(fragmentParent.html.textContent === 'firstsecond', 'fragment component did not mount all root nodes');
+    sculptor.unmount(fragmentComponent);
+    assert(fragmentParent.html.childNodes.length === 0 && componentFragment.childNodes.length === 2, 'fragment component did not unmount intact');
+    sculptor.mount(fragmentComponent, fragmentParent);
+    assert(fragmentParent.html.firstChild === fragmentFirst.html, 'fragment component did not preserve node identity');
+    fragmentComponent.dispose();
+    assert(fragmentParent.html.childNodes.length === 0 && fragmentFirst.html === null, 'fragment component did not dispose mounted nodes');
 
     let olderResolve;
     let request = sculptor.asyncState();

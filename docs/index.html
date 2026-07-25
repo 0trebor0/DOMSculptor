@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Documentation for the tiny, dependency-free DOMSculptor reactive DOM toolkit.">
+  <title>DOMSculptor Documentation</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#start"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation">
+      <a href="#api">API</a>
+    <a href="./examples.html">Examples</a>
+    <a href="./large-projects.html">Large projects</a>
+      <a href="https://github.com/0trebor0/DOMSculptor">GitHub</a>
+    </nav>
+  </header>
+
+  <aside aria-label="Documentation navigation">
+    <strong>Documentation</strong>
+    <a href="#start">Five-minute start</a>
+    <a href="#dom">DOM creation</a>
+    <a href="#reactivity">Reactivity</a>
+    <a href="#lists">Keyed lists</a>
+    <a href="#components">Components</a>
+    <a href="#forms">Forms</a>
+    <a href="#async">Async state</a>
+    <a href="#accessibility">Accessibility</a>
+    <a href="#typescript">TypeScript</a>
+    <a href="#migration">Migration</a>
+    <a href="#scope">Comparison &amp; non-goals</a>
+  </aside>
+
+  <main>
+    <section class="hero" id="start">
+      <p class="eyebrow">Direct DOM · useful reactivity · predictable cleanup</p>
+      <h1>Small interfaces deserve a small mental model.</h1>
+      <p class="lede">DOMSculptor is a tiny, dependency-free, client-side reactive DOM toolkit for widgets, browser extensions, embedded interfaces, progressive enhancement, and small applications.</p>
+      <div class="actions"><a href="#dom">Start building</a><code>npm install domsculptor</code></div>
+      <pre><code>import DomSculptor from "domsculptor";
+
+const sculptor = new DomSculptor();
+const count = sculptor.signal(0);
+const button = sculptor.create("button");
+
+count.bindText(button, value =&gt; `Count: ${value}`);
+button.on("click", () =&gt; count.update(value =&gt; value + 1));
+sculptor.mount(button, "#app");
+
+button.dispose();
+count.dispose();</code></pre>
+      <div class="cards">
+        <article><h3>npm</h3><pre><code>npm install domsculptor</code></pre><p><code>import DomSculptor from "domsculptor";</code></p></article>
+        <article><h3>Browser ESM</h3><p><code>https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js</code></p></article>
+        <article><h3>Script tag</h3><p><code>https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.min.js</code></p></article>
+      </div>
+    </section>
+
+    <section id="dom">
+      <p class="eyebrow">DOM creation and wrapping</p>
+      <h2>Create detached. Mount deliberately.</h2>
+      <div class="cards">
+        <article><h3>Compose</h3><p><code>create()</code> and <code>tree()</code> create detached, safe, text-first DOM.</p></article>
+        <article><h3>Connect</h3><p><code>mount()</code>, <code>unmount()</code>, and <code>adopt()</code> make ownership explicit.</p></article>
+        <article><h3>Clean up</h3><p><code>dispose()</code> permanently removes listeners, bindings, descendants, and references.</p></article>
+      </div>
+      <p class="note">Ordinary text and tree APIs never accept raw HTML. If native HTML APIs are used, sanitisation remains the caller's responsibility.</p>
+    </section>
+
+    <section id="reactivity">
+      <p class="eyebrow">Signals, computed values, effects, and batching</p>
+      <h2>Immediate values. One queued DOM pass.</h2>
+      <pre><code>const first = sculptor.signal("Ada");
+const last = sculptor.signal("Lovelace");
+const full = sculptor.computed(
+  () =&gt; `${first.get()} ${last.get()}`,
+  [first, last]
+);
+
+const stop = sculptor.effect(() =&gt; {
+  document.title = full.get();
+}, [full]);
+
+sculptor.batch(() =&gt; {
+  first.set("Grace");
+  last.set("Hopper");
+});
+
+stop();
+full.dispose();</code></pre>
+    </section>
+
+    <section id="lists">
+      <p class="eyebrow">Keyed lists</p>
+      <h2>Move nodes; do not rebuild identity.</h2>
+      <p>Stable keys preserve nodes, focus, selection, and row-local state. Duplicate keys throw before the DOM changes.</p>
+      <pre><code>todos.list(list, {
+  key: todo =&gt; todo.id,
+  render: todo =&gt; sculptor.tree({
+    tag: "li",
+    children: [
+      { tag: "span", text: todo.text },
+      { tag: "button", text: "Delete" }
+    ]
+  }),
+  update: (row, todo) =&gt; {
+    row.child.find("span").setText(todo.text);
+  }
+});
+
+list.dispose();
+todos.dispose();</code></pre>
+    </section>
+
+    <section id="components">
+      <p class="eyebrow">Components and disposal scopes</p>
+      <h2>A factory and a scope—not a hidden renderer.</h2>
+      <pre><code>const Counter = sculptor.component(props =&gt; {
+  const count = sculptor.signal(props.initial ?? 0);
+  const root = sculptor.tree({
+    tag: "button",
+    text: count,
+    on: { click: () =&gt; count.update(value =&gt; value + 1) }
+  });
+  return { root, api: { count } };
+});
+
+const counter = Counter({ initial: 2 });
+sculptor.mount(counter, "#app");
+counter.dispose();</code></pre>
+      <p class="note"><code>onMount</code> runs once per element lifetime, parent before children. <code>onUnmount</code> runs child-first on temporary detachment. <code>onDispose</code> runs once, child-first, before permanent cleanup. Moving a node never disposes it, and cleanup continues after hook errors with <code>AggregateError</code> for multiple failures.</p>
+    </section>
+
+    <section id="forms">
+      <p class="eyebrow">Forms</p>
+      <h2>Native controls keep native semantics.</h2>
+      <p>Bind text inputs, textareas, selects, multiple selects, checkboxes, radio groups, numbers, and custom controls. Equal writes are skipped to preserve the caret, and composition events protect IME input.</p>
+      <pre><code>accepted.bind(checkbox);
+quantity.bind(numberInput);
+tags.bind(multipleSelect, { multiple: true });
+
+formScope.dispose();</code></pre>
+    </section>
+
+    <section id="async">
+      <p class="eyebrow">Async state</p>
+      <h2>Cancellation is part of correctness.</h2>
+      <pre><code>const users = sculptor.asyncState([]);
+
+await users.run(({ signal }) =&gt;
+  fetch("/users?q=ada", { signal }).then(response =&gt; response.json())
+);
+
+users.cancel();
+users.reset();</code></pre>
+    </section>
+
+    <section id="accessibility">
+      <p class="eyebrow">Accessibility and security</p>
+      <h2>Browser behavior remains visible.</h2>
+      <ul>
+        <li>Bind boolean ARIA attributes and native properties directly.</li>
+        <li>Preserve focus and selection during keyed moves.</li>
+        <li>Use labels, live regions, keyboard events, and native focus APIs.</li>
+        <li>Run under strict CSP without eval, generated functions, or inline runtime styles.</li>
+      </ul>
+    </section>
+
+    <section id="typescript">
+      <p class="eyebrow">TypeScript</p>
+      <h2>Strong contracts without changing the JavaScript source layout.</h2>
+      <p>Declarations ship from <code>types/index.d.ts</code>; the runtime remains entirely in <code>src/index.js</code>.</p>
+      <pre><code>const input = sculptor.create("input");
+input.html?.select(); // HTMLInputElement
+
+const form = sculptor.store({ name: "Ada", age: 36 });
+form.set("age", 37);       // number required
+
+const Account = sculptor.component(
+  (props: { userId: string }) =&gt; ({
+    root: sculptor.create("section"),
+    api: { userId: props.userId }
+  })
+);</code></pre>
+      <p>Native tags, events, component props and APIs, context keys, stores, async state, keyed lists, tree configuration, testing utilities, and lazy components are compile-checked in CI.</p>
+    </section>
+
+    <section id="examples">
+      <p class="eyebrow">Complete examples</p>
+      <h2>Every example includes its exit path.</h2>
+      <div class="examples">
+        <article><h3>Counter</h3><p>Signals and component disposal.</p><code>dispose()</code></article>
+        <article><h3>Keyed todo list</h3><p>Stable rows and delegated events.</p><code>dispose()</code></article>
+        <article><h3>Searchable table</h3><p>Computed filtering and batching.</p><code>dispose()</code></article>
+        <article><h3>Accessible modal</h3><p>Focus handoff and Escape cleanup.</p><code>dispose()</code></article>
+        <article><h3>Validated form</h3><p>Native controls and ARIA state.</p><code>dispose()</code></article>
+        <article><h3>Async user search</h3><p>Abort-aware fetch and reset.</p><code>dispose()</code></article>
+        <article><h3>Extension popup</h3><p>Build-free browser UI.</p><code>dispose()</code></article>
+        <article><h3>Progressive enhancement</h3><p>Adopt existing markup.</p><code>dispose()</code></article>
+      </div>
+      <p><a href="./examples.html"><strong>Open all eight complete examples</strong></a>. Every example includes mounting, interaction, and deterministic cleanup.</p>
+    </section>
+
+    <section id="api">
+      <p class="eyebrow">API reference</p>
+      <h2>One direct-DOM vocabulary.</h2>
+      <div class="api">
+        <article><h3>Core</h3><p>create · createIn · mount · unmount · adopt · tree · when</p></article>
+        <article><h3>Reactive</h3><p>signal · store · computed · effect · batch · flush · asyncState</p></article>
+        <article><h3>Element</h3><p>child · attribute · class · text · attr · focus · events · lifecycle · dispose</p></article>
+        <article><h3>Composition</h3><p>createScope · component · createContext · createContextKey</p></article>
+      </div>
+      <p>All public APIs are exported from the single <code>domsculptor</code> entry.</p>
+      <div class="reference">
+        <article><h3>Creation and ownership</h3><p><code>create(tag, parent?, callback?)</code> returns a detached typed wrapper unless a parent is supplied. <code>createIn(parent, tag)</code> inserts immediately. <code>mount</code>, <code>unmount</code>, <code>adopt</code>, <code>wrap</code>, <code>tryWrap</code>, and <code>tryMount</code> make failure and lifetime explicit.</p></article>
+        <article><h3>Elements</h3><p><code>setText</code>, <code>text</code>, <code>attr</code>, <code>classToggle</code>, <code>styleValue</code>, <code>bindProperty</code>, child operations, traversal, focus helpers, lifecycle hooks, native events, delegation, and <code>dispose</code>.</p></article>
+        <article><h3>Reactivity</h3><p><code>signal/state</code>, typed <code>store/data</code>, lazy <code>computed</code>, cleanup-aware <code>effect</code>, <code>batch</code>, and test-oriented <code>flush</code>. Values update immediately; DOM work is microtask queued and deduplicated.</p></article>
+        <article><h3>Rendering and composition</h3><p><code>tree</code>, <code>when</code>, keyed <code>list</code>, <code>component</code>, <code>createScope</code>, and hierarchical context. Component roots may be a node, wrapper, or <code>DocumentFragment</code>.</p></article>
+        <article><h3>Forms and async</h3><p><code>bind/sync</code> handles native controls, IME, custom accessors, properties, caret-safe equal writes, and event selection. <code>asyncState</code> exposes idle, loading, refreshing, success, and error snapshots plus run, retry, cancel, and reset.</p></article>
+        <article><h3>Error policy</h3><p>Programmer errors throw <code>TypeError</code>; creation and mounting failures throw; explicitly searching methods may return <code>null</code>; <code>tryWrap</code> and <code>tryMount</code> are non-throwing. Subscriber and cleanup failures are aggregated.</p></article>
+      </div>
+    </section>
+
+    <section id="performance">
+      <p class="eyebrow">Performance guidance</p>
+      <h2>Measure identity and cleanup before speed.</h2>
+      <p>Prefer keyed rows, batch related writes, delegate repeated events, dispose scopes, and benchmark production builds. Report the browser, device, raw code, median, variance, and compressed bundle size.</p>
+    </section>
+
+    <section id="migration">
+      <p class="eyebrow">Migration guide</p>
+      <h2>Move from implicit creation to explicit lifetime.</h2>
+      <ol>
+        <li>Keep <code>create(tag)</code>; it is detached in 2.0.</li>
+        <li>Replace code that relied on implicit body insertion with <code>mount()</code> or <code>createIn()</code>.</li>
+        <li>Use <code>unmount()</code> temporarily and <code>dispose()</code> permanently.</li>
+        <li>Replace full list renderers with stable keyed configuration.</li>
+        <li>Replace the removed <code>jsontohtml()</code> API with detached <code>tree()</code> configurations.</li>
+      </ol>
+    </section>
+
+    <section id="compatibility">
+      <p class="eyebrow">Compatibility policy</p>
+      <h2>Stable majors, explicit migrations.</h2>
+      <p>DOMSculptor follows semantic versioning. Patch releases fix compatible defects, minor releases add compatible APIs, and breaking behavior is reserved for major releases with changelog and migration entries. Deprecated APIs remain for at least one minor line before removal unless they create a security or correctness hazard.</p>
+    </section>
+
+    <section class="closing" id="scope">
+      <p class="eyebrow">Comparison and non-goals</p>
+      <h2>Deliberately not a universal framework.</h2>
+      <p>DOMSculptor favors direct browser APIs over virtual DOM, JSX transforms, compilers, SSR, hydration, routing, CSS-in-JS, animation engines, HTTP clients, and global state ecosystems.</p>
+    </section>
+  </main>
+
+  <footer><span>DOMSculptor</span><span>Direct DOM toolkit · Apache-2.0</span></footer>
+</body>
+</html>
