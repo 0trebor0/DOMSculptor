@@ -40,6 +40,8 @@ await Promise.all([
     stat(new URL('../testing/index.d.ts', import.meta.url)),
     stat(new URL('../lazy/index.js', import.meta.url)),
     stat(new URL('../lazy/index.d.ts', import.meta.url)),
+    stat(new URL('../docs/api.html', import.meta.url)),
+    stat(new URL('../docs/recipes.html', import.meta.url)),
     stat(new URL('../docs/large-projects.html', import.meta.url)),
     stat(new URL('../docs/releasing.md', import.meta.url))
 ]);

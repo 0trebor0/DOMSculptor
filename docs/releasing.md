@@ -21,11 +21,12 @@ Use this checklist from a clean working tree on the intended release commit.
 1. Commit the reviewed release changes.
 2. Create an annotated `v<version>` tag on that commit.
 3. Push the commit and tag.
-4. Let the tag-triggered release workflow repeat the complete verification.
-5. Publish with npm provenance.
-6. Create the GitHub release from the matching changelog section.
-7. Verify the npm package exports from a new temporary project.
-8. Verify the versioned browser ESM URL in a clean browser session.
+4. Authenticate with the npm account that owns the package using `npm login`.
+5. Confirm the account with `npm whoami`.
+6. Publish manually with `npm publish --access public`.
+7. Create the GitHub release from the matching changelog section if wanted.
+8. Verify the npm package exports from a new temporary project.
+9. Verify the versioned browser ESM URL in a clean browser session.
 
 ## Rollback
 

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Practical DOMSculptor recipes for common interface tasks.">
+  <title>Recipes · DOMSculptor</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./api.html">API</a><a href="./examples.html">Examples</a></nav>
+  </header>
+  <main class="examples-page">
+    <section class="hero">
+      <p class="eyebrow">Practical recipes</p>
+      <h1>Start from the task you have.</h1>
+      <p class="lede">Small patterns you can copy, adapt, and dispose. Each recipe assumes <code>const sculptor = new DomSculptor()</code>.</p>
+    </section>
+
+    <section><h2>Create a card</h2><pre><code>const card = sculptor.tree({
+  tag: "article",
+  class: ["card"],
+  attributes: { "aria-labelledby": "card-title" },
+  children: [
+    { tag: "h2", attributes: { id: "card-title" }, text: "Account" },
+    { tag: "p", text: "Ready to use." }
+  ]
+});
+sculptor.mount(card, "#app");</code></pre></section>
+
+    <section><h2>Enhance existing HTML</h2><pre><code>const panel = sculptor.wrap("[data-panel]");
+const button = panel.child.find("button");
+const open = sculptor.signal(false);
+
+open.bindHidden(panel.child.find("[data-content]"), value =&gt; !value);
+button.attr("aria-expanded", open);
+button.on("click", () =&gt; open.update(value =&gt; !value));</code></pre></section>
+
+    <section><h2>Bind a form</h2><pre><code>const name = sculptor.signal("");
+const input = sculptor.create("input")
+  .attribute.set({ name: "name", autocomplete: "name" });
+
+name.bind(input);
+name.subscribe(value =&gt; saveDraft(value));
+
+// Number parsing:
+age.bind(numberInput, { parse: value =&gt; Number(value) });</code></pre></section>
+
+    <section><h2>Render a keyed collection</h2><pre><code>const items = sculptor.signal([]);
+const list = sculptor.create("ul");
+
+items.list(list, {
+  key: item =&gt; item.id,
+  render: item =&gt; sculptor.create("li").setText(item.label),
+  update: (row, item) =&gt; row.setText(item.label)
+});</code></pre></section>
+
+    <section><h2>Load remote data</h2><pre><code>const users = sculptor.asyncState([]);
+const status = sculptor.create("p").attribute.set("aria-live", "polite");
+
+users.subscribe(snapshot =&gt; {
+  if (snapshot.status === "loading") status.setText("Loading users…");
+  if (snapshot.status === "success") status.setText(`${snapshot.data.length} users`);
+  if (snapshot.status === "error") status.setText("Could not load users");
+}, { immediate: true });
+
+await users.run(({ signal }) =&gt;
+  fetch("/api/users", { signal }).then(response =&gt; response.json())
+);</code></pre></section>
+
+    <section><h2>Own a route lifetime</h2><pre><code>let activeRoute = null;
+
+function showRoute(factory) {
+  activeRoute?.dispose();
+  activeRoute = factory();
+  sculptor.mount(activeRoute, "#app");
+}
+
+addEventListener("pagehide", () =&gt; activeRoute?.dispose(), { once: true });</code></pre></section>
+
+    <section><h2>Share a service with context</h2><pre><code>const Session = sculptor.createContextKey("Session");
+const appContext = sculptor.createContext();
+appContext.set(Session, sessionService);
+
+const Account = sculptor.component((_props, context) =&gt; {
+  const session = context.get(Session);
+  return sculptor.create("p").setText(session.user.name);
+});
+
+const account = Account({}, appContext);</code></pre></section>
+
+    <section><h2>Clean up a feature</h2><pre><code>const scope = sculptor.createScope();
+
+scope.run(() =&gt; {
+  const query = sculptor.signal("");
+  const input = sculptor.create("input");
+  query.bind(input);
+  sculptor.mount(input, "#app");
+
+  const controller = new AbortController();
+  scope.track(() =&gt; controller.abort());
+});
+
+scope.dispose(); // state, bindings, DOM, and custom abort</code></pre></section>
+  </main>
+  <footer><span>DOMSculptor recipes</span><span>Copy, adapt, dispose</span></footer>
+</body>
+</html>

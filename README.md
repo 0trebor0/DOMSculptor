@@ -5,40 +5,55 @@ DOMSculptor is a tiny, dependency-free, client-side reactive DOM toolkit for wid
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://GitHub.com/0trebor0/DOMSculptor/graphs/commit-activity)
 [![GitHub Stars](https://img.shields.io/github/stars/0trebor0/DOMSculptor?style=social)](https://github.com/0trebor0/DOMSculptor/stargazers)
 
-## Table of Contents
+## Start here
 
-* [Getting Started](#getting-started)
-* [Creating Elements](#creating-elements)
-* [Wrapping Existing Elements](#wrapping-existing-elements)
-* [Content](#content)
-* [Attributes](#attributes)
-* [Classes](#classes)
-* [Styles](#styles)
-* [Children](#children)
-* [DOM Traversal](#dom-traversal)
-* [Lifecycle Hooks](#lifecycle-hooks)
-* [Events](#events)
-* [Reactive State](#reactive-state)
-* [Async State](#async-state)
-* [Reactive Data](#reactive-data)
-* [Tree creation](#tree-creation)
-* [Conditional rendering](#conditional-rendering)
-* [Components and disposal scopes](#components-and-disposal-scopes)
-* [Contributing](#contributing)
+Use DOMSculptor when you want reactive browser UI without adopting a framework,
+compiler, JSX transform, or virtual DOM.
 
-## Getting Started
+The basic workflow is always the same:
 
-### npm
+1. Create one `DomSculptor` runtime.
+2. Create detached DOM.
+3. Connect state and events.
+4. Mount the result.
+5. Dispose it when the feature is finished.
+
+### Five-minute counter
 
 ```sh
 npm install domsculptor
 ```
 
+Add `<div id="app"></div>` to the page, then:
+
 ```js
 import DomSculptor from 'domsculptor';
 
 let sculptor = new DomSculptor();
+let count = sculptor.signal(0);
+let button = sculptor.create('button');
+
+count.bindText(button, value => `Count: ${value}`);
+button.on('click', () => count.update(value => value + 1));
+sculptor.mount(button, '#app');
+
+// At page, route, or widget teardown:
+button.dispose();
+count.dispose();
 ```
+
+`create()` is detached, `mount()` inserts it, and `dispose()` permanently removes
+its DOM, listeners, bindings, and owned descendants.
+
+### Choose an entry point
+
+| Use case | Import |
+| --- | --- |
+| npm or a bundler | `import DomSculptor from 'domsculptor'` |
+| Browser ES module | `import DomSculptor from '.../domsculptor.esm.min.js'` |
+| Classic script tag | `<script src=".../domsculptor.min.js"></script>` |
+| Test helpers | `import { createTestHarness } from 'domsculptor/testing'` |
+| Lazy components | `import { createLazyComponent } from 'domsculptor/lazy'` |
 
 ### Browser ES module
 
@@ -88,6 +103,30 @@ Save this as an HTML file and open it in a browser:
     }, { once: true });
 </script>
 ```
+
+## Find what you need
+
+### Everyday DOM
+
+- [Create and mount elements](#creating-elements)
+- [Wrap existing markup](#wrapping-existing-elements)
+- [Set content](#content), [attributes](#attributes), [classes](#classes), and [styles](#styles)
+- [Manage children](#children), [traverse DOM](#dom-traversal), and [handle events](#events)
+- [Understand mounting and cleanup](#lifecycle-hooks)
+
+### Reactive UI
+
+- [Signals, computed values, effects, forms, and lists](#reactive-state)
+- [Async loading and cancellation](#async-state)
+- [Reactive object stores](#reactive-data)
+- [Declarative trees](#tree-creation) and [conditional UI](#conditional-rendering)
+- [Components, contexts, and disposal scopes](#components-and-disposal-scopes)
+
+Continue with the [practical recipes](docs/recipes.html), use the
+[complete API reference](docs/api.html) while coding, or open the
+[full examples](docs/examples.html). For application structure, routing,
+testing, lazy loading, and service boundaries, read the
+[large-project guide](docs/large-projects.html).
 
 ## Creating Elements
 

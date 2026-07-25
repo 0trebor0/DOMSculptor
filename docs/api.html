@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete DOMSculptor API reference.">
+  <title>API reference · DOMSculptor</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./recipes.html">Recipes</a><a href="./examples.html">Examples</a></nav>
+  </header>
+  <aside aria-label="API navigation">
+    <strong>API reference</strong>
+    <a href="#runtime">Runtime</a>
+    <a href="#elements">DomElement</a>
+    <a href="#state">Signals</a>
+    <a href="#stores">Stores</a>
+    <a href="#components">Components</a>
+    <a href="#async">Async state</a>
+    <a href="#testing">Testing</a>
+    <a href="#lazy">Lazy loading</a>
+    <a href="#errors">Errors</a>
+  </aside>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Complete API reference</p>
+      <h1>Every public operation, in one place.</h1>
+      <p class="lede">Signatures below show the common JavaScript form. TypeScript declarations ship with the package and infer native element types, component props, component APIs, stores, contexts, and events.</p>
+      <p class="note">Most mutating element methods return the same <code>DomElement</code> for chaining. Programmer errors throw. Methods named <code>try*</code> return <code>null</code> instead.</p>
+    </section>
+
+    <section id="runtime">
+      <p class="eyebrow">Runtime and ownership</p>
+      <h2>DomSculptor</h2>
+      <div class="reference">
+        <article><h3><code>new DomSculptor(options?)</code></h3><p>Creates an isolated scheduler, scope stack, and element registry. Options support <code>development</code> and <code>onWarning</code>. Create separate runtimes when interfaces need isolated flushing and diagnostics.</p></article>
+        <article><h3><code>create(tag, parent?, callback?)</code></h3><p>Creates a typed element. Without a parent it is detached. A parent may be a selector, native <code>Node</code>, or <code>DomElement</code>. The callback receives the new wrapper.</p></article>
+        <article><h3><code>createDetached(tag, callback?)</code></h3><p>Explicit detached alias for <code>create(tag)</code>.</p></article>
+        <article><h3><code>createIn(parent, tag, callback?)</code></h3><p>Creates and immediately inserts an element into a required parent.</p></article>
+        <article><h3><code>mount(value, parent)</code> / <code>tryMount(value, parent)</code></h3><p>Mounts a live element or component. <code>mount</code> throws for invalid input or a missing parent; <code>tryMount</code> returns <code>null</code>.</p></article>
+        <article><h3><code>unmount(value)</code></h3><p>Temporarily detaches without disposing listeners, bindings, state, or identity. The same value can be mounted again.</p></article>
+        <article><h3><code>wrap(selectorOrNode)</code> / <code>tryWrap(...)</code></h3><p>Gets the stable wrapper for existing DOM. Strict wrapping throws when no node is found; the <code>try</code> form returns <code>null</code>.</p></article>
+        <article><h3><code>adopt(node)</code></h3><p>Takes managed ownership of existing native markup so lifecycle and cleanup work like DOMSculptor-created elements.</p></article>
+        <article><h3><code>tree(config)</code></h3><p>Creates a detached hierarchy from <code>tag</code>, <code>text</code>, <code>attributes</code>, <code>class</code>, <code>properties</code>, <code>on</code>, and recursive <code>children</code>. Text stays text; raw HTML is not interpreted.</p></article>
+      </div>
+    </section>
+
+    <section id="elements">
+      <p class="eyebrow">DOM wrappers</p>
+      <h2>DomElement</h2>
+      <div class="reference">
+        <article><h3>Native access</h3><p><code>element.html</code> is the native node until disposal, then <code>null</code>. <code>children</code> is a frozen snapshot of managed child wrappers.</p></article>
+        <article><h3>Text and value</h3><p><code>setText(value)</code>, <code>text(readable, transform?)</code>, <code>getValue()</code>, and <code>setValue(value)</code>.</p></article>
+        <article><h3>Attributes</h3><p><code>attribute.set(name, value)</code>, <code>attribute.set(object)</code>, <code>remove</code>, <code>get</code>, and <code>has</code>. <code>attr(name, readable, transform?)</code> creates a reactive binding.</p></article>
+        <article><h3>Classes and styles</h3><p><code>class.add/remove/toggle/contains</code>, <code>classToggle</code>, <code>setStyle</code>, and reactive <code>styleValue</code>.</p></article>
+        <article><h3>Visibility and focus</h3><p><code>hide()</code>, <code>show()</code>, <code>focus(options?)</code>, <code>blur()</code>, and <code>isFocused()</code>. Showing restores the previous inline display value.</p></article>
+        <article><h3>Children</h3><p><code>child.append</code>, <code>prepend</code>, <code>create</code>, <code>replace</code>, <code>clear</code>, and <code>remove</code>. Accepted children are wrappers, native nodes, and strings.</p></article>
+        <article><h3>Traversal and placement</h3><p><code>parent()</code>, <code>closest(selector)</code>, <code>childrenOf()</code>, <code>child.find</code>, <code>findAll</code>, <code>before</code>, and <code>after</code>.</p></article>
+        <article><h3>Events</h3><p><code>on(event, handler, options?)</code>, event maps, delegated <code>on(event, selector, handler)</code>, <code>once</code>, and <code>off</code>. Disposal releases retained callbacks.</p></article>
+        <article><h3>Lifecycle</h3><p><code>onMount</code>, <code>onUnmount</code>, <code>onDispose</code>, and compatibility alias <code>onRemove</code>. Unmount is temporary; dispose is permanent.</p></article>
+        <article><h3><code>dispose()</code></h3><p>Runs child-first cleanup once, removes DOM, releases bindings and events, and nulls the native reference. Multiple cleanup failures are reported together with <code>AggregateError</code>.</p></article>
+      </div>
+    </section>
+
+    <section id="state">
+      <p class="eyebrow">Fine-grained reactivity</p>
+      <h2>Signals, computed values, and effects</h2>
+      <pre><code>const count = sculptor.signal(0);
+const doubled = sculptor.computed(() =&gt; count.get() * 2, [count]);
+const stop = sculptor.effect(() =&gt; title.setText(doubled.get()), [doubled]);
+
+count.set(1);
+count.update(value =&gt; value + 1);
+sculptor.flush();
+
+stop();
+doubled.dispose();
+count.dispose();</code></pre>
+      <div class="reference">
+        <article><h3><code>signal(initial)</code> / <code>state(initial)</code></h3><p>Returns state with <code>get</code>, <code>set</code>, <code>update</code>, <code>subscribe</code>, bindings, lists, and <code>dispose</code>. Equal values are skipped.</p></article>
+        <article><h3><code>subscribe(callback, options?)</code></h3><p>Returns an unsubscribe function. Use <code>immediate: true</code> for initial delivery or pass an <code>AbortSignal</code> for automatic removal.</p></article>
+        <article><h3>Bindings</h3><p><code>bindText</code>, <code>bindValue</code>, <code>bindAttribute</code>, <code>bindClass</code>, <code>bindStyle</code>, <code>bindVisible</code>, <code>bindHidden</code>, and <code>bindProperty</code>. Element disposal removes the binding.</p></article>
+        <article><h3><code>bind(element, options?)</code> / <code>sync(...)</code></h3><p>Two-way native form binding for text, numbers, checkboxes, radio groups, and selects. Options provide <code>event</code>, <code>parse</code>, <code>format</code>, custom <code>get/set</code>, grouped values, and multiple selection.</p></article>
+        <article><h3><code>computed(compute, dependencies)</code></h3><p>Creates a cached read-only value. Dependencies schedule recomputation; unchanged results do not notify subscribers.</p></article>
+        <article><h3><code>effect(run, dependencies)</code></h3><p>Runs immediately, reruns after dependency changes, and invokes the previous returned cleanup before rerunning. The returned function stops the effect.</p></article>
+        <article><h3><code>batch(callback)</code> / <code>flush()</code></h3><p>Batch groups scheduled work. Values change immediately; DOM jobs are deduplicated. <code>flush</code> completes pending work synchronously and is useful in tests.</p></article>
+        <article><h3><code>list(container, options)</code></h3><p>Keyed mode uses <code>key</code>, <code>render</code>, and optional <code>update</code>. Stable keys move existing nodes and preserve focus. Duplicate keys throw before changing the DOM.</p></article>
+      </div>
+    </section>
+
+    <section id="stores">
+      <p class="eyebrow">Structured state</p>
+      <h2>Stores</h2>
+      <p><code>store(initial)</code> and <code>data(initial)</code> are aliases. Use <code>get(key?)</code>, <code>set(key, value)</code>, bulk <code>set(object)</code>, <code>update</code>, <code>has</code>, <code>delete</code>, and <code>signal(key)</code>. Observe one property with <code>onChange</code>, everything with <code>onAnyChange</code>, and release observers with the returned unsubscribe function, <code>offChange</code>, an abort signal, or <code>dispose</code>.</p>
+    </section>
+
+    <section id="components">
+      <p class="eyebrow">Composition and lifetime</p>
+      <h2>Components, scopes, contexts, and boundaries</h2>
+      <div class="reference">
+        <article><h3><code>component(factory, options?)</code></h3><p>Returns a factory receiving props and context. Return a root wrapper/node or <code>{ root, api, dispose }</code>. Instances expose <code>root</code>, <code>api</code>, <code>scope</code>, <code>context</code>, <code>name</code>, and <code>dispose</code>.</p></article>
+        <article><h3><code>createScope()</code></h3><p><code>scope.run(callback)</code> automatically owns resources created inside it. <code>track(cleanup)</code> adds custom teardown. <code>dispose</code> runs cleanup in reverse order.</p></article>
+        <article><h3>Context</h3><p>Create typed keys with <code>createContextKey</code>. Contexts support <code>get</code>, <code>has</code>, <code>set</code>, <code>delete</code>, and inherited <code>child</code> contexts.</p></article>
+        <article><h3><code>when(condition, branch, options?)</code></h3><p>Switches conditional DOM. Options support <code>fallback</code>, preserved branches, stop-time disposal, and direct mounting with <code>parent</code>. The returned function stops rendering.</p></article>
+        <article><h3><code>errorBoundary(factory, fallback)</code></h3><p>Catches component-construction failures, cleans the failed scope, and creates deterministic fallback UI.</p></article>
+        <article><h3>Development diagnostics</h3><p><code>createDevSculptor({ onWarning })</code> reports ownership, invalid usage, cleanup, duplicate-key, and leak diagnostics. <code>reportLeaks()</code> returns the active component count.</p></article>
+      </div>
+    </section>
+
+    <section id="async">
+      <p class="eyebrow">Cancellable work</p>
+      <h2>Async state</h2>
+      <p><code>asyncState(initialData?)</code> exposes snapshots with <code>status</code>, <code>data</code>, and <code>error</code>. Status is <code>idle</code>, <code>loading</code>, <code>refreshing</code>, <code>success</code>, or <code>error</code>. Run work with <code>run(({ signal }) =&gt; task)</code>; later runs abort earlier work by default. Use <code>retry</code>, <code>cancel</code>, and <code>reset</code> for explicit control.</p>
+    </section>
+
+    <section id="testing">
+      <p class="eyebrow">Optional entry</p>
+      <h2><code>domsculptor/testing</code></h2>
+      <p><code>createTestHarness(parent?, options?)</code> creates an isolated development runtime and fixture root. Use <code>mount</code>, deterministic <code>flush</code>, <code>assertClean</code>, captured <code>warnings</code>, and idempotent <code>dispose</code>.</p>
+    </section>
+
+    <section id="lazy">
+      <p class="eyebrow">Optional entry</p>
+      <h2><code>domsculptor/lazy</code></h2>
+      <p><code>createLazyComponent(sculptor, loader, options?)</code> converts a dynamic loader into a component factory. The loader receives <code>signal</code>, props, and context. Options configure name, wrapper tag, loading UI, error UI, and <code>onError</code>. Its API exposes a reactive loading/success/error status, and disposal aborts loading and disposes the loaded child.</p>
+    </section>
+
+    <section class="closing" id="errors">
+      <p class="eyebrow">Failure and cleanup rules</p>
+      <h2>Errors stay visible.</h2>
+      <p>Invalid API input throws <code>TypeError</code>. Missing strict selectors and invalid mounts throw. Search operations and <code>tryWrap</code>/<code>tryMount</code> may return <code>null</code>. Subscriber notification continues across failures before rethrowing; multiple cleanup failures become <code>AggregateError</code>.</p>
+    </section>
+  </main>
+  <footer><span>DOMSculptor API</span><span>Version 2.0.0</span></footer>
+</body>
+</html>

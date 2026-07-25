@@ -11,16 +11,19 @@
   <header class="topbar">
     <a class="brand" href="#start"><span aria-hidden="true">DS</span> DOMSculptor</a>
     <nav aria-label="Primary navigation">
-      <a href="#api">API</a>
-    <a href="./examples.html">Examples</a>
-    <a href="./large-projects.html">Large projects</a>
+      <a href="./api.html">API</a>
+      <a href="./recipes.html">Recipes</a>
+      <a href="./examples.html">Examples</a>
+      <a href="./large-projects.html">Large projects</a>
       <a href="https://github.com/0trebor0/DOMSculptor">GitHub</a>
     </nav>
   </header>
 
   <aside aria-label="Documentation navigation">
     <strong>Documentation</strong>
-    <a href="#start">Five-minute start</a>
+    <a href="#quick-start">Five-minute start</a>
+    <a href="./recipes.html">Practical recipes</a>
+    <a href="./api.html">Complete API</a>
     <a href="#dom">DOM creation</a>
     <a href="#reactivity">Reactivity</a>
     <a href="#lists">Keyed lists</a>
@@ -38,7 +41,7 @@
       <p class="eyebrow">Direct DOM · useful reactivity · predictable cleanup</p>
       <h1>Small interfaces deserve a small mental model.</h1>
       <p class="lede">DOMSculptor is a tiny, dependency-free, client-side reactive DOM toolkit for widgets, browser extensions, embedded interfaces, progressive enhancement, and small applications.</p>
-      <div class="actions"><a href="#dom">Start building</a><code>npm install domsculptor</code></div>
+      <div class="actions"><a href="#quick-start">Start in five minutes</a><a href="./examples.html">Copy examples</a><code>npm install domsculptor</code></div>
       <pre><code>import DomSculptor from "domsculptor";
 
 const sculptor = new DomSculptor();
@@ -56,6 +59,39 @@ count.dispose();</code></pre>
         <article><h3>Browser ESM</h3><p><code>https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js</code></p></article>
         <article><h3>Script tag</h3><p><code>https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.min.js</code></p></article>
       </div>
+    </section>
+
+    <section id="quick-start">
+      <p class="eyebrow">Five-minute start</p>
+      <h2>From an empty page to reactive UI.</h2>
+      <ol class="steps">
+        <li><strong>Install:</strong> run <code>npm install domsculptor</code>.</li>
+        <li><strong>Add a mount point:</strong> put <code>&lt;div id="app"&gt;&lt;/div&gt;</code> in the page.</li>
+        <li><strong>Create:</strong> elements are detached until you mount them.</li>
+        <li><strong>Connect:</strong> bind a signal and add browser events.</li>
+        <li><strong>Clean up:</strong> call <code>dispose()</code> at route, page, or widget teardown.</li>
+      </ol>
+      <pre><code>import DomSculptor from "domsculptor";
+
+const sculptor = new DomSculptor();
+const message = sculptor.signal("Ready");
+const status = sculptor.create("p");
+const button = sculptor.create("button").setText("Update");
+
+message.bindText(status);
+button.on("click", () =&gt; message.set("Updated"));
+
+const view = sculptor.tree({
+  tag: "section",
+  children: [status, button]
+});
+
+sculptor.mount(view, "#app");
+
+// Teardown:
+view.dispose();
+message.dispose();</code></pre>
+      <p class="note"><strong>Mental model:</strong> create detached DOM, connect behavior, mount deliberately, then dispose ownership. Start with these four operations before learning the rest of the API.</p>
     </section>
 
     <section id="dom">
@@ -212,7 +248,7 @@ const Account = sculptor.component(
         <article><h3>Element</h3><p>child · attribute · class · text · attr · focus · events · lifecycle · dispose</p></article>
         <article><h3>Composition</h3><p>createScope · component · createContext · createContextKey</p></article>
       </div>
-      <p>All public APIs are exported from the single <code>domsculptor</code> entry.</p>
+      <p>Core public APIs are exported from <code>domsculptor</code>. Optional testing and lazy-loading helpers use <code>domsculptor/testing</code> and <code>domsculptor/lazy</code>.</p>
       <div class="reference">
         <article><h3>Creation and ownership</h3><p><code>create(tag, parent?, callback?)</code> returns a detached typed wrapper unless a parent is supplied. <code>createIn(parent, tag)</code> inserts immediately. <code>mount</code>, <code>unmount</code>, <code>adopt</code>, <code>wrap</code>, <code>tryWrap</code>, and <code>tryMount</code> make failure and lifetime explicit.</p></article>
         <article><h3>Elements</h3><p><code>setText</code>, <code>text</code>, <code>attr</code>, <code>classToggle</code>, <code>styleValue</code>, <code>bindProperty</code>, child operations, traversal, focus helpers, lifecycle hooks, native events, delegation, and <code>dispose</code>.</p></article>
