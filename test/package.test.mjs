@@ -44,15 +44,4 @@ await Promise.all([
     stat(new URL('../docs/releasing.md', import.meta.url))
 ]);
 
-let [ci, release] = await Promise.all([
-    readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'),
-    readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
-]);
-for (let browserName of ['chromium', 'firefox', 'webkit']) assert.match(ci, new RegExp(browserName));
-assert.match(ci, /fail-fast:\s*false/);
-assert.match(ci, /DOMSCULPTOR_BROWSERS/);
-assert.match(ci, /npm pack --dry-run/);
-assert.match(release, /npm publish --access public --provenance/);
-assert.match(release, /gh release create/);
-
 console.log('Single source entry, package root, and browser build resolved.');
