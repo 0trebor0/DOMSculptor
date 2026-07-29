@@ -111,7 +111,7 @@ Save this as an HTML file and open it in a browser:
 - [Create and mount elements](#creating-elements)
 - [Wrap existing markup](#wrapping-existing-elements)
 - [Set content](#content), [attributes](#attributes), [classes](#classes), and [styles](#styles)
-- [Manage children](#children), [traverse DOM](#dom-traversal), and [handle events](#events)
+- [Manage children](#children), [render large collections](#incremental-rendering), and [traverse DOM](#dom-traversal)
 - [Understand mounting and cleanup](#lifecycle-hooks)
 
 ### Reactive UI
@@ -234,6 +234,34 @@ Elements can also be inserted next to another wrapped element:
 item.before(previousItem);
 item.after(nextItem);
 ```
+
+## Incremental Rendering
+
+`renderChunks(items, container, options)` progressively creates large collections
+without running the entire render loop in one turn. The first chunk is rendered
+immediately, then later chunks run once per animation frame. `chunkSize` defaults
+to `100`.
+
+```js
+let controller = new AbortController();
+let list = sculptor.create('ul', '#app');
+let rendering = sculptor.renderChunks(items, list, {
+    chunkSize: 100,
+    signal: controller.signal,
+    render: item => sculptor.create('li').setText(item.label)
+});
+
+await rendering;
+```
+
+The renderer must return a live detached `DomElement`. The Promise resolves with
+the container when every item is appended. Aborting, disposing the container, or
+a rendering failure stops pending frames and disposes only the elements created
+by that operation; content that was already in the container remains untouched.
+
+`renderChunks()` is an instance method on `DomSculptor`. It is different from
+`batch()`, which deduplicates scheduled reactive work but does not yield during a
+direct DOM creation loop.
 
 ## DOM Traversal
 

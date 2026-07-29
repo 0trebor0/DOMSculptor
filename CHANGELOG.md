@@ -3,6 +3,13 @@
 All notable changes to DOMSculptor will be documented in this file. The project
 uses [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Class-only `DomSculptor.renderChunks()` progressive rendering with bounded
+  animation-frame chunks, abort support, and lifecycle-aware partial cleanup.
+
 ## 2.0.0
 
 ### Added

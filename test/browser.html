@@ -16,6 +16,11 @@ let assert = (condition, message) => {
 
 try {
     assert(typeof BrowserDomSculptor === 'function', 'browser ESM default export did not resolve');
+    let browserSculptor = new BrowserDomSculptor();
+    assert(
+        typeof browserSculptor.renderChunks === 'function',
+        'browser ESM class did not expose renderChunks'
+    );
     let sculptor = new DomSculptor();
     let failedBoundarySignal;
     let BrokenBrowserComponent = sculptor.component(() => {
@@ -51,6 +56,27 @@ try {
     let first = parent.child.create('span').setText('first');
     let second = parent.child.create('span').setText('second');
     let third = parent.child.create('span').setText('third');
+
+    let chunkList = sculptor.create('ul');
+    sculptor.mount(chunkList, document.body);
+    let chunkItems = Object.freeze([
+        Object.freeze({ label: 'one' }),
+        Object.freeze({ label: 'two' }),
+        Object.freeze({ label: 'three' }),
+        Object.freeze({ label: 'four' }),
+        Object.freeze({ label: 'five' })
+    ]);
+    let chunkRender = sculptor.renderChunks(chunkItems, chunkList, {
+        chunkSize: 2,
+        render: item => sculptor.create('li').setText(item.label)
+    });
+    assert(chunkList.children.length === 2, 'chunk rendering did not enforce its initial chunk boundary');
+    await chunkRender;
+    assert(
+        chunkList.children.map(element => element.html.textContent).join(',') === 'one,two,three,four,five',
+        'chunk rendering did not finish in source order'
+    );
+    chunkList.dispose();
 
     assert(parent.childrenOf()[0] === first, 'traversal created a duplicate wrapper');
     assert(sculptor.wrap(first.html) === first, 'wrap created a duplicate wrapper');

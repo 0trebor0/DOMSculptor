@@ -123,6 +123,23 @@ try {
             }
             return samples;
         };
+        let runChunked = async (iterations = 5) => {
+            let samples = [];
+            for (let sample = 0; sample < iterations; sample++) {
+                let sculptor = new DomSculptor();
+                let items = Array.from({ length: 1_000 }, (_, id) => ({ id, label: `Row ${id}` }));
+                let container = sculptor.create('div');
+                sculptor.mount(container, document.body);
+                let start = performance.now();
+                await sculptor.renderChunks(items, container, {
+                    chunkSize: 100,
+                    render: item => sculptor.create('div').setText(item.label)
+                });
+                samples.push(performance.now() - start);
+                container.dispose();
+            }
+            return samples;
+        };
 
         let names = [
             'create-1000',
@@ -136,7 +153,9 @@ try {
             'signal-updates-batched',
             'listener-subscription-cleanup'
         ];
-        return Object.fromEntries(names.map(name => [name, run(name)]));
+        let results = Object.fromEntries(names.map(name => [name, run(name)]));
+        results['render-chunks-1000'] = await runChunked();
+        return results;
     });
 
     let cdp = await page.context().newCDPSession(page);

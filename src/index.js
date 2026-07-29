@@ -1029,6 +1029,131 @@ class DomSculptor {
         return element;
     }
 
+    async renderChunks(items, container, options) {
+        if (!Array.isArray(items)) {
+            throw new TypeError('DomSculptor.renderChunks: expected an array.');
+        }
+        if (!(container instanceof DomElement) || !container.html) {
+            throw new TypeError('DomSculptor.renderChunks: expected a live DomElement container.');
+        }
+        if (!options || typeof options !== 'object' || Array.isArray(options)) {
+            throw new TypeError('DomSculptor.renderChunks: expected an options object.');
+        }
+        if (typeof options.render !== 'function') {
+            throw new TypeError('DomSculptor.renderChunks: expected a render function.');
+        }
+        let chunkSize = options.chunkSize ?? 100;
+        if (!Number.isInteger(chunkSize) || chunkSize < 1) {
+            throw new TypeError('DomSculptor.renderChunks: chunkSize must be a positive integer.');
+        }
+        let signal = options.signal ?? null;
+        if (signal != null && (
+            typeof signal.aborted !== 'boolean' ||
+            typeof signal.addEventListener !== 'function' ||
+            typeof signal.removeEventListener !== 'function'
+        )) {
+            throw new TypeError('DomSculptor.renderChunks: signal must be an AbortSignal.');
+        }
+
+        let values = items.slice();
+        let created = [];
+        let active = true;
+        let cancelled = false;
+        let cancelFrame = null;
+        let resumeFrame = null;
+        let cleanupErrors = [];
+        let abortError = () => {
+            let error = new Error('DomSculptor.renderChunks: aborted.');
+            error.name = 'AbortError';
+            return error;
+        };
+        let cleanupCreated = () => {
+            created.slice().reverse().forEach(element => {
+                if (!element.html) return;
+                try { element.dispose(); }
+                catch (error) { cleanupErrors.push(error); }
+            });
+        };
+        let cancel = () => {
+            if (!active || cancelled) return;
+            cancelled = true;
+            cancelFrame?.();
+            cancelFrame = null;
+            cleanupCreated();
+            let resume = resumeFrame;
+            resumeFrame = null;
+            resume?.();
+        };
+        let waitForFrame = () => new Promise(resolve => {
+            resumeFrame = () => {
+                cancelFrame = null;
+                resumeFrame = null;
+                resolve();
+            };
+            if (typeof requestAnimationFrame === 'function') {
+                let id = requestAnimationFrame(() => resumeFrame?.());
+                cancelFrame = () => {
+                    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id);
+                };
+            } else {
+                let id = setTimeout(() => resumeFrame?.(), 0);
+                cancelFrame = () => clearTimeout(id);
+            }
+        });
+        let releaseContainerTracking = () => {
+            container._removeCallbacks = container._removeCallbacks.filter(callback => callback !== cancel);
+        };
+
+        container.onDispose(cancel);
+        this._track(cancel);
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener('abort', cancel, { once: true });
+
+        try {
+            if (cancelled || !container.html) throw abortError();
+            let index = 0;
+            while (index < values.length) {
+                let end = Math.min(index + chunkSize, values.length);
+                while (index < end) {
+                    if (cancelled || !container.html) throw abortError();
+                    let element = options.render(values[index], index);
+                    if (!(element instanceof DomElement) || !element.html || element.html.parentNode) {
+                        throw new TypeError(
+                            'DomSculptor.renderChunks: render must return a live detached DomElement.'
+                        );
+                    }
+                    created.push(element);
+                    if (cancelled || !container.html) throw abortError();
+                    container.child.append(element);
+                    index++;
+                }
+                if (index < values.length) {
+                    await waitForFrame();
+                    if (cancelled || !container.html) throw abortError();
+                }
+            }
+            active = false;
+            signal?.removeEventListener('abort', cancel);
+            releaseContainerTracking();
+            created = [];
+            values = [];
+            return container;
+        } catch (error) {
+            active = false;
+            signal?.removeEventListener('abort', cancel);
+            releaseContainerTracking();
+            cleanupCreated();
+            let errors = [error, ...cleanupErrors];
+            created = [];
+            values = [];
+            cleanupErrors = [];
+            throwCollectedErrors(
+                errors,
+                'DomSculptor.renderChunks cleanup failed.'
+            );
+        }
+    }
+
     when(condition, branch, options = {}) {
         if (!condition || typeof condition.get !== 'function' || typeof condition.subscribe !== 'function') {
             throw new TypeError('DomSculptor.when: expected a signal condition.');

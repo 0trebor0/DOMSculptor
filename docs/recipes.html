@@ -57,6 +57,18 @@ items.list(list, {
   update: (row, item) =&gt; row.setText(item.label)
 });</code></pre></section>
 
+    <section><h2>Render a large collection progressively</h2><pre><code>let list = sculptor.create("ul");
+sculptor.mount(list, "#app");
+
+let controller = new AbortController();
+let rendering = sculptor.renderChunks(items, list, {
+  chunkSize: 100,
+  signal: controller.signal,
+  render: item =&gt; sculptor.create("li").setText(item.label)
+});
+
+await rendering;</code></pre><p>Later chunks run on later animation frames. Abort the controller or dispose the list to stop and clean the unfinished operation.</p></section>
+
     <section><h2>Load remote data</h2><pre><code>const users = sculptor.asyncState([]);
 const status = sculptor.create("p").attribute.set("aria-live", "polite");
 

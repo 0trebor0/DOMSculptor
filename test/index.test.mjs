@@ -117,6 +117,36 @@ let {
 let { createTestHarness } = await import('../testing/index.js');
 let { createLazyComponent } = await import('../lazy/index.js');
 
+let withManualAnimationFrames = async callback => {
+    let originalRequest = globalThis.requestAnimationFrame;
+    let originalCancel = globalThis.cancelAnimationFrame;
+    let callbacks = new Map();
+    let nextId = 1;
+    globalThis.requestAnimationFrame = frameCallback => {
+        let id = nextId++;
+        callbacks.set(id, frameCallback);
+        return id;
+    };
+    globalThis.cancelAnimationFrame = id => callbacks.delete(id);
+    try {
+        await callback({
+            pending: () => callbacks.size,
+            async runNext() {
+                let next = callbacks.entries().next().value;
+                if (!next) throw new Error('Expected a pending animation frame.');
+                callbacks.delete(next[0]);
+                next[1](0);
+                await Promise.resolve();
+            }
+        });
+    } finally {
+        if (originalRequest === undefined) delete globalThis.requestAnimationFrame;
+        else globalThis.requestAnimationFrame = originalRequest;
+        if (originalCancel === undefined) delete globalThis.cancelAnimationFrame;
+        else globalThis.cancelAnimationFrame = originalCancel;
+    }
+};
+
 test('main module exposes convenience APIs from the single source entry', () => {
     let value = signal(1);
     let doubled = computed(() => value.get() * 2, [value]);
@@ -1308,6 +1338,164 @@ test('form binding supports checkbox arrays, multiple selects, custom accessors,
     assert.equal(composing.get(), '');
     imeInput.html.dispatchEvent(new Event('compositionend'));
     assert.equal(composing.get(), '途中');
+});
+
+test('renderChunks preserves order and yields between bounded chunks', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        let existing = container.child.create('li').setText('existing');
+        let rendered = [];
+        let items = Object.freeze([
+            Object.freeze({ label: 'one' }),
+            Object.freeze({ label: 'two' }),
+            Object.freeze({ label: 'three' }),
+            Object.freeze({ label: 'four' }),
+            Object.freeze({ label: 'five' })
+        ]);
+        let done = sculptor.renderChunks(items, container, {
+            chunkSize: 2,
+            render: (item, index) => {
+                rendered.push(index);
+                return sculptor.create('li').setText(item.label);
+            }
+        });
+
+        assert.deepEqual(rendered, [0, 1]);
+        assert.equal(frames.pending(), 1);
+        assert.deepEqual(container.children.map(element => element.html.textContent), [
+            'existing', 'one', 'two'
+        ]);
+
+        await frames.runNext();
+        assert.deepEqual(rendered, [0, 1, 2, 3]);
+        assert.equal(frames.pending(), 1);
+
+        await frames.runNext();
+        assert.equal(await done, container);
+        assert.deepEqual(container.children.map(element => element.html.textContent), [
+            'existing', 'one', 'two', 'three', 'four', 'five'
+        ]);
+        assert.equal(container.children[0], existing);
+        assert.equal(frames.pending(), 0);
+    });
+});
+
+test('renderChunks cancellation and failures dispose only elements created by the operation', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        let existing = container.child.create('li').setText('existing');
+        let created = [];
+        let controller = new AbortController();
+        let done = sculptor.renderChunks([1, 2, 3], container, {
+            chunkSize: 2,
+            signal: controller.signal,
+            render: item => {
+                let element = sculptor.create('li').setText(item);
+                created.push(element);
+                return element;
+            }
+        });
+
+        assert.equal(frames.pending(), 1);
+        controller.abort();
+        await assert.rejects(done, error => error.name === 'AbortError');
+        assert.equal(frames.pending(), 0);
+        assert.deepEqual(container.children, [existing]);
+        assert.ok(created.every(element => element.html === null));
+
+        let alreadyAborted = new AbortController();
+        alreadyAborted.abort();
+        await assert.rejects(
+            sculptor.renderChunks([], container, {
+                signal: alreadyAborted.signal,
+                render: () => sculptor.create('li')
+            }),
+            error => error.name === 'AbortError'
+        );
+
+        let abortDuringRender = new AbortController();
+        let interrupted;
+        await assert.rejects(
+            sculptor.renderChunks([1], container, {
+                signal: abortDuringRender.signal,
+                render: () => {
+                    abortDuringRender.abort();
+                    interrupted = sculptor.create('li');
+                    return interrupted;
+                }
+            }),
+            error => error.name === 'AbortError'
+        );
+        assert.equal(interrupted.html, null);
+        assert.deepEqual(container.children, [existing]);
+
+        let failed = [];
+        await assert.rejects(
+            sculptor.renderChunks([1, 2, 3], container, {
+                chunkSize: 3,
+                render: item => {
+                    if (item === 2) throw new Error('render failed');
+                    let element = sculptor.create('li').setText(item);
+                    failed.push(element);
+                    return element;
+                }
+            }),
+            /render failed/
+        );
+        assert.deepEqual(container.children, [existing]);
+        assert.ok(failed.every(element => element.html === null));
+
+        await assert.rejects(
+            sculptor.renderChunks([1], container, {
+                render: () => 'invalid'
+            }),
+            /live detached DomElement/
+        );
+        assert.deepEqual(container.children, [existing]);
+    });
+});
+
+test('renderChunks validates its contract and stops when its container is disposed', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        await assert.rejects(sculptor.renderChunks(null, container, { render: () => container }), /array/);
+        await assert.rejects(sculptor.renderChunks([], null, { render: () => container }), /container/);
+        await assert.rejects(sculptor.renderChunks([], container), /options/);
+        await assert.rejects(
+            sculptor.renderChunks([], container, { chunkSize: 0, render: () => container }),
+            /positive integer/
+        );
+
+        let created = [];
+        let done = sculptor.renderChunks([1, 2, 3], container, {
+            chunkSize: 1,
+            render: item => {
+                let element = sculptor.create('li').setText(item);
+                created.push(element);
+                return element;
+            }
+        });
+        assert.equal(frames.pending(), 1);
+        container.dispose();
+        await assert.rejects(done, error => error.name === 'AbortError');
+        assert.equal(frames.pending(), 0);
+        assert.ok(created.every(element => element.html === null));
+    });
+});
+
+test('renderChunks uses a timer when animation frames are unavailable', async () => {
+    let sculptor = new DomSculptor();
+    let container = sculptor.create('ul');
+    let done = sculptor.renderChunks([1, 2], container, {
+        chunkSize: 1,
+        render: item => sculptor.create('li').setText(item)
+    });
+    assert.equal(container.children.length, 1);
+    await done;
+    assert.deepEqual(container.children.map(element => element.html.textContent), ['1', '2']);
 });
 
 test('keyed lists preserve identity through reorder, insert, update, and remove', () => {
