@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete DOMSculptor examples with deterministic cleanup.">
+  <meta name="description" content="Practical DOMSculptor examples with deterministic cleanup.">
   <title>DOMSculptor Complete Examples</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -14,10 +14,11 @@
   </header>
   <main class="examples-page">
     <section class="hero">
-      <p class="eyebrow">Complete, framework-free examples</p>
+      <p class="eyebrow">Practical, framework-free examples</p>
       <h1>Build it. Mount it. Clean it up.</h1>
-      <p class="lede">Each example uses the immutable 2.0.0 browser ESM URL and includes its complete disposal path.</p>
+      <p class="lede">Each focused example uses the immutable 2.0.0 browser ESM URL and includes its disposal path. Add the shared import below and the HTML or application values named by the example before running it.</p>
       <pre><code>import DomSculptor from "https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js";</code></pre>
+      <p class="note">Examples that mount to <code>#app</code> require <code>&lt;div id="app"&gt;&lt;/div&gt;</code>. Supply <code>sourceRows</code> for the table and <code>save()</code> for the form. Run the extension example where <code>chrome.storage</code> exists, and start progressive enhancement with matching server markup.</p>
     </section>
 
     <section id="counter">
@@ -176,7 +177,7 @@ scope.run(() =&gt; {
   button.on("click", () =&gt; open.update(value =&gt; !value));
   scope.track(() =&gt; sculptor.unmount(menu));
 });
-scope.dispose(); // keeps server markup but removes ownership and listeners</code></pre>
+scope.dispose(); // detaches the server node and releases scoped listeners; the adopted wrapper remains reusable</code></pre>
     </section>
   </main>
   <footer><span>DOMSculptor 2.0</span><span>Every example owns its cleanup</span></footer>

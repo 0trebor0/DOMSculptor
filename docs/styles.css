@@ -13,6 +13,8 @@
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
+  min-width: 0;
+  overflow-x: hidden;
   background: linear-gradient(90deg, rgb(21 34 29 / 3.5%) 1px, transparent 1px) 0 0 / 40px 40px, var(--paper);
   color: var(--ink);
   font: 16px/1.65 Inter, ui-sans-serif, system-ui, sans-serif;
@@ -34,7 +36,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, monospace; }
 }
 .brand { align-items: center; display: flex; font-weight: 800; gap: 12px; text-decoration: none; }
 .brand span { background: var(--ink); border-radius: 8px; color: var(--paper); font: 13px monospace; padding: 7px; }
-.topbar nav { display: flex; font-size: 14px; font-weight: 700; gap: 22px; }
+.topbar nav { display: flex; font-size: 14px; font-weight: 700; gap: 22px; min-width: 0; }
 aside {
   border-right: 1px solid var(--line);
   display: grid;
@@ -50,7 +52,7 @@ aside {
 aside strong { color: #a93620; font: 800 12px monospace; letter-spacing: .12em; margin-bottom: 10px; text-transform: uppercase; }
 aside a { border-left: 2px solid transparent; color: var(--muted); font-size: 14px; padding: 5px 9px; text-decoration: none; }
 aside a:hover, aside a:focus-visible { border-left-color: var(--accent); color: var(--ink); }
-main { margin-left: 250px; }
+main { margin-left: 250px; min-width: 0; }
 .examples-page { margin-left: 0; }
 .examples-page section { max-width: 1050px; }
 section { border-bottom: 1px solid var(--line); margin: 0 auto; max-width: 1050px; padding: 88px clamp(28px, 7vw, 90px); scroll-margin-top: 72px; }
@@ -65,31 +67,41 @@ section > p:not(.eyebrow) { color: var(--muted); font-size: 18px; max-width: 780
 .actions { align-items: center; display: flex; flex-wrap: wrap; gap: 18px; margin: 36px 0; }
 .actions a { background: var(--accent); border-radius: 7px; color: white; font-weight: 800; padding: 11px 18px; text-decoration: none; }
 .actions code { background: rgb(21 34 29 / 7%); border-radius: 5px; padding: 5px 8px; }
-pre { background: var(--code); border-radius: 12px; color: #e8efe9; font-size: 13px; line-height: 1.7; margin-top: 32px; overflow: auto; padding: 25px; }
-.cards, .api { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); margin-top: 32px; }
+pre { background: var(--code); border-radius: 12px; color: #e8efe9; font-size: 13px; line-height: 1.7; margin-top: 32px; max-width: 100%; overflow: auto; padding: 25px; }
+.cards, .api { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 32px; }
 .reference { display: grid; gap: 14px; margin-top: 26px; }
 .reference article { border-top: 1px solid var(--line); padding-top: 18px; }
 .reference p { color: var(--muted); margin-bottom: 0; }
 .cards article pre { margin: 10px 0; padding: 10px; }
 .cards article, .api article, .examples article { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 22px; }
-.cards p, .api p, .examples p { color: var(--muted); font-size: 14px; margin-bottom: 0; }
+.cards p, .api p, .examples p { color: var(--muted); font-size: 14px; margin-bottom: 0; overflow-wrap: anywhere; }
+.cards code, .api code, .examples code, .reference code, section > p code { overflow-wrap: anywhere; word-break: break-word; }
 .note { background: #e8eee7; border-left: 4px solid var(--green); margin-top: 22px; padding: 17px 20px; }
 .steps { display: grid; gap: 12px; margin: 28px 0; max-width: 780px; padding-left: 24px; }
 .steps li { padding-left: 8px; }
-.examples { display: grid; gap: 12px; grid-template-columns: repeat(2, 1fr); }
+.examples { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .examples code { color: #a93620; font-size: 12px; }
 .api { grid-template-columns: repeat(2, 1fr); }
 .closing { background: var(--green); color: white; max-width: none; }
 .closing .eyebrow { color: #ffb19d; }
 .closing p:not(.eyebrow) { color: #d9e5df; }
-footer { background: var(--ink); color: #d9e5df; display: flex; justify-content: space-between; margin-left: 250px; padding: 26px 34px; }
+footer { background: var(--ink); color: #d9e5df; display: flex; gap: 20px; justify-content: space-between; margin-left: 250px; padding: 26px 34px; }
+main.examples-page + footer { margin-left: 0; }
 @media (max-width: 780px) {
-  .topbar { height: 64px; padding: 0 18px; }
+  .topbar { align-items: flex-start; height: auto; min-height: 64px; padding: 12px 18px 10px; }
+  .topbar nav { gap: 18px; margin-left: 20px; overflow-x: auto; padding: 4px 0 7px; scrollbar-width: thin; white-space: nowrap; }
   aside { display: none; }
   main, footer { margin-left: 0; }
-  section { padding: 64px 22px; scroll-margin-top: 64px; }
+  section { padding: 64px 22px; scroll-margin-top: 76px; }
   .hero { min-height: auto; }
   .cards, .api, .examples { grid-template-columns: 1fr; }
+  footer { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 520px) {
+  .topbar { display: block; }
+  .topbar nav { flex-wrap: wrap; gap: 8px 18px; margin: 9px 0 0; overflow: visible; padding-bottom: 2px; white-space: normal; width: 100%; }
+  h1 { font-size: clamp(2.65rem, 13vw, 4rem); }
+  pre { padding: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

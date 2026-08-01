@@ -251,7 +251,7 @@ items.forEach(item => {
     sculptor.create('li', list).setText(item.label);
 });
 
-console.log(sculptor.rendering); // true while mounts remain queued
+console.log(sculptor.rendering); // true while a parented-create cycle is active
 ```
 
 `create()` still returns each `DomElement` immediately, so normal chaining works.
@@ -890,6 +890,19 @@ DOMSculptor follows semantic versioning. Patch releases fix compatible defects,
 minor releases add compatible APIs, and breaking behavior is reserved for major
 releases with changelog and migration entries. In 2.0, `create(tag)` became
 detached by default; use `createIn(parent, tag)` or `mount()` for insertion.
+
+## License
+
+DOMSculptor uses the [Apache License 2.0](./LICENSE). It permits private and
+commercial use, modification, sublicensing, and redistribution in source or
+compiled form. When redistributing DOMSculptor or a derivative work, include the
+license, mark modified files, and retain applicable notices. The license also
+includes a contributor patent grant that terminates for a party bringing the
+patent litigation described in the license.
+
+Apache 2.0 does not grant general trademark rights, and the software is provided
+without warranties or contributor liability to the extent allowed by law. This
+summary is not legal advice; the complete `LICENSE` text controls.
 
 ## Contributing
 

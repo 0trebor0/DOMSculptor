@@ -63,7 +63,7 @@ try {
                     sculptor.mount(container, document.body);
                 };
 
-                if (name === 'create-1000') {
+                if (name === 'keyed-list-create-1000') {
                     start = performance.now();
                     setupList();
                     stop = performance.now();
@@ -123,7 +123,7 @@ try {
             }
             return samples;
         };
-        let runEach = async (iterations = 5) => {
+        let runProgressiveCreate = async (iterations = 5) => {
             let samples = [];
             for (let sample = 0; sample < iterations; sample++) {
                 let sculptor = new DomSculptor();
@@ -142,7 +142,7 @@ try {
         };
 
         let names = [
-            'create-1000',
+            'keyed-list-create-1000',
             'append-one',
             'prepend-one',
             'remove-middle',
@@ -154,7 +154,7 @@ try {
             'listener-subscription-cleanup'
         ];
         let results = Object.fromEntries(names.map(name => [name, run(name)]));
-        results['render-each-100'] = await runEach();
+        results['progressive-create-100'] = await runProgressiveCreate();
         return results;
     });
 

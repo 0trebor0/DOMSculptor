@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 let docsUrl = new URL('../docs/', import.meta.url);
 
-test('static documentation covers required guides and complete examples without a framework', async () => {
+test('static documentation covers required guides and practical examples without a framework', async () => {
     let [html, examples, largeProjects, api, recipes, releasing, css] = await Promise.all([
         readFile(new URL('index.html', docsUrl), 'utf8'),
         readFile(new URL('examples.html', docsUrl), 'utf8'),
@@ -27,6 +27,7 @@ test('static documentation covers required guides and complete examples without 
         'TypeScript',
         'Migration guide',
         'Compatibility policy',
+        'Apache License 2.0',
         'API reference',
         'Performance guidance',
         'Comparison and non-goals'
@@ -62,6 +63,7 @@ test('static documentation covers required guides and complete examples without 
         'Stores',
         'Components, scopes, contexts, and boundaries',
         'Async state',
+        'Named convenience exports',
         'domsculptor/testing',
         'domsculptor/lazy',
         'Failure and cleanup rules'
@@ -78,10 +80,31 @@ test('static documentation covers required guides and complete examples without 
     ]) assert.match(recipes, new RegExp(recipe));
     assert.match(html, /onMount.*onUnmount.*onDispose/s);
     assert.match(html, /Error policy/);
+    for (let licenseTopic of [
+        'commercial and closed-source software',
+        'When redistributing',
+        'Patent grant',
+        'What is not granted',
+        'not legal advice'
+    ]) assert.match(html, new RegExp(licenseTopic));
+    assert.equal((api.match(/<code>create\(tag, parent\?, callback\?\)<\/code>/g) || []).length, 1);
+    assert.match(api, /text\(readable\)/);
+    assert.match(api, /attr\(name, readable\)/);
+    assert.doesNotMatch(api, /text\(readable, transform\?/);
+    assert.doesNotMatch(api, /attr\(name, readable, transform\?/);
+    assert.match(api, /hook failure can leave the value mounted/);
+    assert.match(api, /first parented call even though that element mounts immediately/);
+    assert.match(api, /shared default <code>DomSculptor<\/code> instance/);
+    assert.match(examples, /adopted wrapper remains reusable/);
     assert.match(html, /domsculptor@2\.0\.0\/dist\/domsculptor\.esm\.min\.js/);
     assert.ok((examples.match(/dispose\(\)/g) || []).length >= 8);
     assert.ok((examples.match(/<pre><code>/g) || []).length >= 8);
     assert.match(css, /@media \(max-width: 780px\)/);
+    assert.match(css, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+    assert.match(css, /\.topbar nav \{[^}]*overflow-x: auto/s);
+    assert.match(css, /main\.examples-page \+ footer/);
+    assert.match(largeProjects, /class="topbar"/);
+    assert.match(largeProjects, /class="examples-page"/);
     for (let topic of [
         'Recommended structure',
         'Routing with browser APIs',

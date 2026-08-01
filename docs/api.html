@@ -20,6 +20,7 @@
     <a href="#stores">Stores</a>
     <a href="#components">Components</a>
     <a href="#async">Async state</a>
+    <a href="#exports">Named exports</a>
     <a href="#testing">Testing</a>
     <a href="#lazy">Lazy loading</a>
     <a href="#errors">Errors</a>
@@ -29,7 +30,7 @@
       <p class="eyebrow">Complete API reference</p>
       <h1>Every public operation, in one place.</h1>
       <p class="lede">Signatures below show the common JavaScript form. TypeScript declarations ship with the package and infer native element types, component props, component APIs, stores, contexts, and events.</p>
-      <p class="note">Most mutating element methods return the same <code>DomElement</code> for chaining. Programmer errors throw. Methods named <code>try*</code> return <code>null</code> instead.</p>
+      <p class="note">Most mutating element methods return the same <code>DomElement</code> for chaining. Programmer errors throw. Methods named <code>try*</code> catch failures and return <code>null</code>; see the mounting note below for the possible DOM side effect.</p>
     </section>
 
     <section id="runtime">
@@ -37,16 +38,15 @@
       <h2>DomSculptor</h2>
       <div class="reference">
         <article><h3><code>new DomSculptor(options?)</code></h3><p>Creates an isolated scheduler, scope stack, and element registry. Options support <code>development</code> and <code>onWarning</code>. Create separate runtimes when interfaces need isolated flushing and diagnostics.</p></article>
-        <article><h3><code>create(tag, parent?, callback?)</code></h3><p>Creates a typed element. Without a parent it is detached. A parent may be a selector, native <code>Node</code>, or <code>DomElement</code>. The callback receives the new wrapper.</p></article>
+        <article><h3><code>create(tag, parent?, callback?)</code></h3><p>Creates and returns a chainable element synchronously. Without a parent it stays detached. With a selector, native <code>Node</code>, or <code>DomElement</code> parent, the first call mounts immediately and later calls for that parent mount one per animation frame, or one per timer turn when animation frames are unavailable. The callback runs before return, including while an element is waiting in the parent queue, so attributes, events, bindings, children, and lifecycle hooks can be configured normally. Disposing a queued element prevents its later insertion.</p></article>
         <article><h3><code>createDetached(tag, callback?)</code></h3><p>Explicit detached alias for <code>create(tag)</code>.</p></article>
         <article><h3><code>createIn(parent, tag, callback?)</code></h3><p>Creates and immediately inserts an element into a required parent.</p></article>
-        <article><h3><code>mount(value, parent)</code> / <code>tryMount(value, parent)</code></h3><p>Mounts a live element or component. <code>mount</code> throws for invalid input or a missing parent; <code>tryMount</code> returns <code>null</code>.</p></article>
+        <article><h3><code>mount(value, parent)</code> / <code>tryMount(value, parent)</code></h3><p>Mounts a live element or component. <code>mount</code> throws for invalid input, a missing parent, or a failing mount hook. <code>tryMount</code> catches the failure and returns <code>null</code>. Because insertion happens before mount hooks run, a hook failure can leave the value mounted even when <code>tryMount</code> returns <code>null</code>.</p></article>
         <article><h3><code>unmount(value)</code></h3><p>Temporarily detaches without disposing listeners, bindings, state, or identity. The same value can be mounted again.</p></article>
         <article><h3><code>wrap(selectorOrNode)</code> / <code>tryWrap(...)</code></h3><p>Gets the stable wrapper for existing DOM. Strict wrapping throws when no node is found; the <code>try</code> form returns <code>null</code>.</p></article>
         <article><h3><code>adopt(node)</code></h3><p>Takes managed ownership of existing native markup so lifecycle and cleanup work like DOMSculptor-created elements.</p></article>
         <article><h3><code>tree(config)</code></h3><p>Creates a detached hierarchy from <code>tag</code>, <code>text</code>, <code>attributes</code>, <code>class</code>, <code>properties</code>, <code>on</code>, and recursive <code>children</code>. Text stays text; raw HTML is not interpreted.</p></article>
-        <article><h3><code>create(tag, parent?, callback?)</code></h3><p>Creates and returns a chainable element immediately. Each parent has its own queue: its first element mounts immediately and later calls mount one per animation frame.</p></article>
-        <article><h3><code>rendering</code></h3><p>A boolean that remains <code>true</code> while parented <code>create()</code> calls are waiting to mount and returns to <code>false</code> when the queue is empty.</p></article>
+        <article><h3><code>rendering</code></h3><p>A read-only boolean describing whether any progressive parented-<code>create()</code> cycle is active. It becomes <code>true</code> for the first parented call even though that element mounts immediately, and returns to <code>false</code> after every parent queue finishes its scheduled frame or timer callback. Separate parents have separate queues.</p></article>
       </div>
     </section>
 
@@ -55,8 +55,8 @@
       <h2>DomElement</h2>
       <div class="reference">
         <article><h3>Native access</h3><p><code>element.html</code> is the native node until disposal, then <code>null</code>. <code>children</code> is a frozen snapshot of managed child wrappers.</p></article>
-        <article><h3>Text and value</h3><p><code>setText(value)</code>, <code>text(readable, transform?)</code>, <code>getValue()</code>, and <code>setValue(value)</code>.</p></article>
-        <article><h3>Attributes</h3><p><code>attribute.set(name, value)</code>, <code>attribute.set(object)</code>, <code>remove</code>, <code>get</code>, and <code>has</code>. <code>attr(name, readable, transform?)</code> creates a reactive binding.</p></article>
+        <article><h3>Text and value</h3><p><code>setText(value)</code>, <code>text(readable)</code>, <code>getValue()</code>, and <code>setValue(value)</code>. <code>text()</code> appends one targeted text node, updates it through the runtime scheduler, and unsubscribes when the element is disposed. Transform a signal with <code>computed()</code> before passing it when derived text is required.</p></article>
+        <article><h3>Attributes</h3><p><code>attribute.set(name, value)</code>, <code>attribute.set(object)</code>, <code>remove</code>, <code>get</code>, and <code>has</code>. <code>attr(name, readable)</code> creates a reactive binding: <code>null</code> and <code>false</code> remove the attribute, while <code>true</code> writes an empty attribute.</p></article>
         <article><h3>Classes and styles</h3><p><code>class.add/remove/toggle/contains</code>, <code>classToggle</code>, <code>setStyle</code>, and reactive <code>styleValue</code>.</p></article>
         <article><h3>Visibility and focus</h3><p><code>hide()</code>, <code>show()</code>, <code>focus(options?)</code>, <code>blur()</code>, and <code>isFocused()</code>. Showing restores the previous inline display value.</p></article>
         <article><h3>Children</h3><p><code>child.append</code>, <code>prepend</code>, <code>create</code>, <code>replace</code>, <code>clear</code>, and <code>remove</code>. Accepted children are wrappers, native nodes, and strings.</p></article>
@@ -116,6 +116,13 @@ count.dispose();</code></pre>
       <p class="eyebrow">Cancellable work</p>
       <h2>Async state</h2>
       <p><code>asyncState(initialData?)</code> exposes snapshots with <code>status</code>, <code>data</code>, and <code>error</code>. Status is <code>idle</code>, <code>loading</code>, <code>refreshing</code>, <code>success</code>, or <code>error</code>. Run work with <code>run(({ signal }) =&gt; task)</code>; later runs abort earlier work by default. Use <code>retry</code>, <code>cancel</code>, and <code>reset</code> for explicit control.</p>
+    </section>
+
+    <section id="exports">
+      <p class="eyebrow">Main package entry</p>
+      <h2>Named convenience exports</h2>
+      <p>The main package exports <code>signal</code>, <code>state</code>, <code>store</code>, <code>data</code>, <code>computed</code>, <code>effect</code>, <code>batch</code>, <code>flush</code>, <code>tree</code>, <code>when</code>, <code>mount</code>, <code>unmount</code>, <code>asyncState</code>, <code>errorBoundary</code>, and <code>createDevSculptor</code>. These functions use one shared default <code>DomSculptor</code> instance. Import the default constructor and create an instance when an interface needs isolated scheduling, scopes, ownership diagnostics, or flushing.</p>
+      <p><code>DomElement</code> and <code>DevDomSculptor</code> are also exported. <code>createTestHarness</code> and <code>createLazyComponent</code> are available from the main entry for compatibility and through the focused <code>domsculptor/testing</code> and <code>domsculptor/lazy</code> package subpaths.</p>
     </section>
 
     <section id="testing">

@@ -7,13 +7,16 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <nav><a href="./index.html">DOMSculptor</a><a href="./recipes.html">Recipes</a><a href="./api.html">API</a><a href="./examples.html">Examples</a></nav>
-  <main>
-    <header>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./recipes.html">Recipes</a><a href="./api.html">API</a><a href="./examples.html">Examples</a></nav>
+  </header>
+  <main class="examples-page">
+    <section class="hero">
       <p class="eyebrow">Large-project architecture</p>
       <h1>Organise by feature, own every lifetime.</h1>
-      <p>DOMSculptor remains a DOM toolkit. Application boundaries stay explicit and browser APIs remain available.</p>
-    </header>
+      <p class="lede">DOMSculptor remains a DOM toolkit. Application boundaries stay explicit and browser APIs remain available.</p>
+    </section>
 
     <section>
       <h2>Recommended structure</h2>
@@ -101,5 +104,6 @@ test.dispose();</code></pre>
       <p>Pass services through component props or minimal context keys. Fetch, WebSocket, authentication, validation, and caching policies remain application code. Accept an <code>AbortSignal</code> for every cancellable operation.</p>
     </section>
   </main>
+  <footer><span>DOMSculptor architecture</span><span>Organise by feature · own every lifetime</span></footer>
 </body>
 </html>
