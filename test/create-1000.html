@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DOMSculptor 1,000-element create test</title>
+    <style>
+        body {
+            max-width: 760px;
+            margin: 40px auto;
+            padding: 0 20px;
+            color: #172033;
+            background: #f5f7fb;
+            font: 16px/1.5 system-ui, sans-serif;
+        }
+        header, #results {
+            padding: 20px;
+            border: 1px solid #d9dfeb;
+            border-radius: 12px;
+            background: white;
+        }
+        #results {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin: 16px 0;
+        }
+        output {
+            display: block;
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+        button {
+            padding: 10px 16px;
+            border: 0;
+            border-radius: 8px;
+            color: white;
+            background: #3157d5;
+            cursor: pointer;
+        }
+        button:disabled { opacity: 0.55; cursor: wait; }
+        ul { padding: 0; list-style: none; }
+        li {
+            margin: 6px 0;
+            padding: 10px 12px;
+            border: 1px solid #d9dfeb;
+            border-radius: 8px;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>1,000-element create test</h1>
+        <p>The first row mounts immediately. DOMSculptor mounts the remaining 999 rows one per animation frame.</p>
+        <button id="run" type="button">Run test</button>
+    </header>
+
+    <section id="results" aria-live="polite">
+        <div>Status<output id="status">Ready</output></div>
+        <div>Mounted<output id="count"></output></div>
+        <div>Elapsed<output id="elapsed">0 ms</output></div>
+    </section>
+
+    <main id="demo"></main>
+
+    <script src="../dist/domsculptor.min.js"></script>
+    <script>
+        const sculptor = new DomSculptor();
+        const runButton = document.querySelector('#run');
+        const statusOutput = document.querySelector('#status');
+        const countOutput = document.querySelector('#count');
+        const elapsedOutput = document.querySelector('#elapsed');
+        let currentList = null;
+
+        function runTest() {
+            currentList?.dispose();
+            currentList = sculptor.create('ul', '#demo');
+            runButton.disabled = true;
+            statusOutput.value = 'Rendering';
+            const started = performance.now();
+
+            Array.from({ length: 1000 }, (_, index) => {
+                sculptor
+                    .create('li', currentList)
+                    .setText(`Item ${index + 1}`)
+                    .attribute.set('data-index', index);
+            });
+
+            function showProgress() {
+                countOutput.value = `${currentList.children.length}`;
+                elapsedOutput.value = `${Math.round(performance.now() - started)} ms`;
+
+                if (sculptor.rendering) {
+                    requestAnimationFrame(showProgress);
+                    return;
+                }
+
+                statusOutput.value = currentList.children.length === 1000 ? 'Complete' : 'Failed';
+                runButton.disabled = false;
+            }
+
+            showProgress();
+        }
+
+        runButton.addEventListener('click', runTest);
+        runTest();
+    </script>
+</body>
+</html>

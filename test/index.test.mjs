@@ -1364,6 +1364,36 @@ test('create mounts one parented element per frame while preserving chaining and
     });
 });
 
+test('create progressively mounts 100 elements without losing order or configuration', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        let elements = Array.from({ length: 100 }, (_, index) =>
+            sculptor.create('li', container)
+                .setText(`Item ${index}`)
+                .attribute.set('data-index', index)
+        );
+
+        assert.equal(container.children.length, 1);
+        assert.equal(frames.pending(), 1);
+        assert.equal(sculptor.rendering, true);
+
+        for (let expected = 2; expected <= 100; expected++) {
+            await frames.runNext();
+            assert.equal(container.children.length, expected);
+            assert.equal(container.children.at(-1), elements[expected - 1]);
+        }
+
+        assert.equal(frames.pending(), 0);
+        assert.equal(sculptor.rendering, false);
+        assert.deepEqual(
+            container.children.map(element => Number(element.attribute.get('data-index'))),
+            Array.from({ length: 100 }, (_, index) => index)
+        );
+        container.dispose();
+    });
+});
+
 test('create handles nested parents without requiring mount', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();

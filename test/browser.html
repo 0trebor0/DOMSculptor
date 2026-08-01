@@ -56,19 +56,17 @@ try {
 
     let chunkList = sculptor.create('ul');
     sculptor.mount(chunkList, document.body);
-    let chunkItems = Object.freeze([
-        Object.freeze({ label: 'one' }),
-        Object.freeze({ label: 'two' }),
-        Object.freeze({ label: 'three' }),
-        Object.freeze({ label: 'four' }),
-        Object.freeze({ label: 'five' })
-    ]);
+    let chunkItems = Object.freeze(Array.from(
+        { length: 100 },
+        (_, index) => Object.freeze({ label: `Item ${index}` })
+    ));
     chunkItems.forEach(item => sculptor.create('li', chunkList).setText(item.label));
     assert(chunkList.children.length === 1, 'incremental rendering created more than one initial element');
     assert(sculptor.rendering, 'incremental rendering status did not become active');
     while (sculptor.rendering) await new Promise(resolve => requestAnimationFrame(resolve));
     assert(
-        chunkList.children.map(element => element.html.textContent).join(',') === 'one,two,three,four,five',
+        chunkList.children.length === 100 &&
+        chunkList.children.every((element, index) => element.html.textContent === `Item ${index}`),
         'incremental rendering did not finish in source order'
     );
     chunkList.dispose();
