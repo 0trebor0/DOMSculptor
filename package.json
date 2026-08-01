@@ -51,6 +51,7 @@
     "test:types": "tsc --noEmit",
     "test:package": "node test/package.test.mjs",
     "build": "webpack --config webpack.config.cjs",
+    "build:push": "npm run build && git add ./ && git commit -m \"update\" && git push",
     "benchmark": "node benchmark/run.mjs",
     "size": "node test/size.test.mjs",
     "lint": "node --check src/index.js && node --check benchmark/run.mjs && node --check test/index.test.mjs && node --check test/docs.test.mjs && node --check test/security.test.mjs && node --check test/browser.test.mjs && node --check test/size.test.mjs && node --check test/package.test.mjs",
