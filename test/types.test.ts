@@ -21,6 +21,15 @@ let browserSculptor = new BrowserDomSculptor();
 let browserRendering: boolean = browserSculptor.rendering;
 let input = sculptor.create('input');
 input.html?.select();
+let textValue = sculptor.signal('');
+textValue.sync(input, (value, nativeInput) => {
+    nativeInput.select();
+    return String(value);
+});
+textValue.bind(input, {
+    get: nativeInput => nativeInput.value,
+    set: (nativeInput, value) => { nativeInput.value = value; }
+});
 // @ts-expect-error input elements do not expose canvas methods
 input.html?.getContext('2d');
 
@@ -77,6 +86,7 @@ void renderingStatus;
 void request;
 void counter;
 void element;
+void textValue;
 void browserSculptor;
 void browserRendering;
 void browserSignal;

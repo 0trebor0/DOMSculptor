@@ -55,8 +55,10 @@ its DOM, listeners, bindings, and owned descendants.
 | Test helpers | `import { createTestHarness } from 'domsculptor/testing'` |
 | Lazy components | `import { createLazyComponent } from 'domsculptor/lazy'` |
 
-All executable package APIs resolve to `src/index.js`. The testing and lazy
-subpaths keep separate declaration files only so editors show focused types.
+The root, testing, and lazy package entries resolve to `src/index.js`. The
+prebuilt `domsculptor/browser` entry resolves to `dist/domsculptor.esm.min.js`.
+Testing and lazy subpaths keep separate declaration files so editors show
+focused types.
 
 ### Browser ES module
 
@@ -133,9 +135,11 @@ testing, lazy loading, and service boundaries, read the
 
 ## Creating Elements
 
-`create(tagName, parent?, callback?)` creates a detached element. Pass a parent
-to mount immediately, or call `mount()` after composing the subtree. A parent can
-be a CSS selector string, a `DomElement`, or a native `Node`.
+`create(tagName, parent?, callback?)` creates a detached element. Without a
+parent, call `mount()` after composing the subtree. With a parent, the first
+element mounts immediately and later calls for that parent enter the progressive
+render queue. A parent can be a CSS selector string, a `DomElement`, or a native
+`Node`.
 
 ```js
 let div = sculptor.create('div');
@@ -302,7 +306,7 @@ el.on('scroll', handler, { passive: true });
 el.on('click', handler, { once: true, capture: false, signal: controller.signal });
 el.on({ mouseover: handlerA, mouseout: handlerB }); // bulk
 el.on('click', '.delete-button', (event, matched) => {
-    matched.remove();
+    sculptor.wrap(matched).dispose();
 }); // delegation
 
 el.once('click', handler);       // fires once, then auto-removes
@@ -450,8 +454,10 @@ ageInput.html.type = 'number';
 age.bind(ageInput); // number inputs produce numbers
 ```
 
-`sync(input, transform?)` remains as an alias for compatibility. Binding options
-can select an event, parser, checkbox-group behavior, or custom accessors.
+`sync(input, optionsOrParser?)` remains as an alias for compatibility. A function
+argument parses values read from the control. An options object can select an
+event, parser, checkbox-group behavior, multiple selection, or custom native-node
+accessors.
 
 ```js
 quantity.bind(numberInput, { parse: Number });

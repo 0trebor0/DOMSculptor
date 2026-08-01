@@ -147,14 +147,13 @@ export class DomElement<T extends Node = HTMLElement> {
     dispose(): void;
 }
 
-export interface FormBindingOptions<T> {
+export interface FormBindingOptions<T, E extends Node = HTMLElement> {
     event?: string;
-    parse?: (value: unknown, element: DomElement) => T;
-    format?: (value: T, element: DomElement) => unknown;
-    get?: (element: DomElement) => T;
-    set?: (element: DomElement, value: T) => void;
+    parse?: (value: unknown, element: E) => T;
+    get?: (element: E) => T;
+    set?: (element: E, value: T) => void;
+    group?: boolean;
     multiple?: boolean;
-    value?: unknown;
 }
 
 export interface KeyedListOptions<T, K> {
@@ -166,7 +165,7 @@ export interface KeyedListOptions<T, K> {
 export interface State<T> extends Readable<T> {
     set(next: T): void;
     update(updater: (value: T) => T): void;
-    bind(element: DomElement, updater?: ((value: T, element: DomElement) => void) | FormBindingOptions<T>): DomElement;
+    bind<E extends Node>(element: DomElement<E>, updater?: ((value: T, element: DomElement<E>) => void) | FormBindingOptions<T, E>): DomElement<E>;
     bindText(element: DomElement, transform?: (value: T) => unknown): DomElement;
     bindValue(element: DomElement, transform?: (value: T) => unknown): DomElement;
     bindAttribute(element: DomElement, name: string, transform?: (value: T) => unknown): DomElement;
@@ -175,7 +174,7 @@ export interface State<T> extends Readable<T> {
     bindVisible(element: DomElement, transform?: (value: T) => boolean): DomElement;
     bindHidden(element: DomElement, transform?: (value: T) => boolean): DomElement;
     bindProperty(element: DomElement, name: string, transform?: (value: T) => unknown): DomElement;
-    sync(element: DomElement, options?: FormBindingOptions<T>): DomElement;
+    sync<E extends Node>(element: DomElement<E>, options?: FormBindingOptions<T, E> | ((value: unknown, element: E) => T)): DomElement<E>;
     list<K>(container: DomElement, options: KeyedListOptions<T extends readonly (infer I)[] ? I : never, K>): DomElement;
     list(container: DomElement, render: (item: T extends readonly (infer I)[] ? I : never, index: number) => DomElement): DomElement;
     dispose(): void;
