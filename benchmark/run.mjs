@@ -131,9 +131,10 @@ try {
                 let container = sculptor.create('div');
                 sculptor.mount(container, document.body);
                 let start = performance.now();
-                await sculptor.renderEach(items, container, {
-                    render: item => sculptor.create('div').setText(item.label)
-                });
+                items.forEach(item => sculptor.create('div', container).setText(item.label));
+                while (sculptor.rendering) {
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                }
                 samples.push(performance.now() - start);
                 container.dispose();
             }

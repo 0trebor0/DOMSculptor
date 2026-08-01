@@ -1339,160 +1339,125 @@ test('form binding supports checkbox arrays, multiple selects, custom accessors,
     assert.equal(composing.get(), '途中');
 });
 
-test('renderEach preserves order and yields after every element', async () => {
+test('create mounts one parented element per frame while preserving chaining and order', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
-        let existing = container.child.create('li').setText('existing');
-        let rendered = [];
-        let items = Object.freeze([
-            Object.freeze({ label: 'one' }),
-            Object.freeze({ label: 'two' }),
-            Object.freeze({ label: 'three' }),
-            Object.freeze({ label: 'four' }),
-            Object.freeze({ label: 'five' })
-        ]);
-        let done = sculptor.renderEach(items, container, {
-            render: (item, index) => {
-                rendered.push(index);
-                return sculptor.create('li').setText(item.label);
-            }
-        });
+        let items = ['one', 'two', 'three'];
+        let created = items.map(item => sculptor.create('li', container).setText(item));
 
-        assert.deepEqual(rendered, [0]);
+        assert.equal(sculptor.rendering, true);
         assert.equal(frames.pending(), 1);
-        assert.deepEqual(container.children.map(element => element.html.textContent), [
-            'existing', 'one'
-        ]);
+        assert.deepEqual(container.children.map(element => element.html.textContent), ['one']);
+        assert.equal(created[1].html.textContent, 'two');
+        assert.equal(created[1].html.parentNode, null);
 
         await frames.runNext();
-        assert.deepEqual(rendered, [0, 1]);
+        assert.deepEqual(container.children.map(element => element.html.textContent), ['one', 'two']);
+        assert.equal(sculptor.rendering, true);
         assert.equal(frames.pending(), 1);
 
         await frames.runNext();
-        assert.deepEqual(rendered, [0, 1, 2]);
-        assert.equal(frames.pending(), 1);
-
-        await frames.runNext();
-        assert.deepEqual(rendered, [0, 1, 2, 3]);
-        assert.equal(frames.pending(), 1);
-
-        await frames.runNext();
-        assert.equal(await done, container);
-        assert.deepEqual(container.children.map(element => element.html.textContent), [
-            'existing', 'one', 'two', 'three', 'four', 'five'
-        ]);
-        assert.equal(container.children[0], existing);
+        assert.deepEqual(container.children.map(element => element.html.textContent), items);
+        assert.equal(sculptor.rendering, false);
         assert.equal(frames.pending(), 0);
     });
 });
 
-test('renderEach cancellation and failures dispose only elements created by the operation', async () => {
+test('create handles nested parents without requiring mount', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
-        let container = sculptor.create('ul');
-        let existing = container.child.create('li').setText('existing');
-        let created = [];
-        let controller = new AbortController();
-        let done = sculptor.renderEach([1, 2, 3], container, {
-            signal: controller.signal,
-            render: item => {
-                let element = sculptor.create('li').setText(item);
-                created.push(element);
-                return element;
-            }
-        });
+        let container = sculptor.create('ul', document.body);
+        let first = sculptor.create('li', container).setText('one');
+        let second = sculptor.create('li', container).setText('two');
 
-        assert.equal(frames.pending(), 1);
-        controller.abort();
-        await assert.rejects(done, error => error.name === 'AbortError');
-        assert.equal(frames.pending(), 0);
-        assert.deepEqual(container.children, [existing]);
-        assert.ok(created.every(element => element.html === null));
+        assert.equal(container.html.parentNode, document.body);
+        assert.deepEqual(container.children, [first]);
+        assert.equal(second.html.parentNode, null);
+        assert.equal(sculptor.rendering, true);
 
-        let alreadyAborted = new AbortController();
-        alreadyAborted.abort();
-        await assert.rejects(
-            sculptor.renderEach([], container, {
-                signal: alreadyAborted.signal,
-                render: () => sculptor.create('li')
-            }),
-            error => error.name === 'AbortError'
-        );
-
-        let abortDuringRender = new AbortController();
-        let interrupted;
-        await assert.rejects(
-            sculptor.renderEach([1], container, {
-                signal: abortDuringRender.signal,
-                render: () => {
-                    abortDuringRender.abort();
-                    interrupted = sculptor.create('li');
-                    return interrupted;
-                }
-            }),
-            error => error.name === 'AbortError'
-        );
-        assert.equal(interrupted.html, null);
-        assert.deepEqual(container.children, [existing]);
-
-        let failed = [];
-        let failedRendering = sculptor.renderEach([1, 2, 3], container, {
-                render: item => {
-                    if (item === 2) throw new Error('render failed');
-                    let element = sculptor.create('li').setText(item);
-                    failed.push(element);
-                    return element;
-                }
-            });
         await frames.runNext();
-        await assert.rejects(failedRendering, /render failed/);
-        assert.deepEqual(container.children, [existing]);
-        assert.ok(failed.every(element => element.html === null));
-
-        await assert.rejects(
-            sculptor.renderEach([1], container, {
-                render: () => 'invalid'
-            }),
-            /live detached DomElement/
-        );
-        assert.deepEqual(container.children, [existing]);
-    });
-});
-
-test('renderEach validates its contract and stops when its container is disposed', async () => {
-    await withManualAnimationFrames(async frames => {
-        let sculptor = new DomSculptor();
-        let container = sculptor.create('ul');
-        await assert.rejects(sculptor.renderEach(null, container, { render: () => container }), /array/);
-        await assert.rejects(sculptor.renderEach([], null, { render: () => container }), /container/);
-        await assert.rejects(sculptor.renderEach([], container), /options/);
-
-        let created = [];
-        let done = sculptor.renderEach([1, 2, 3], container, {
-            render: item => {
-                let element = sculptor.create('li').setText(item);
-                created.push(element);
-                return element;
-            }
-        });
-        assert.equal(frames.pending(), 1);
+        await frames.runNext();
+        assert.deepEqual(container.children, [first, second]);
+        assert.equal(sculptor.rendering, false);
         container.dispose();
-        await assert.rejects(done, error => error.name === 'AbortError');
-        assert.equal(frames.pending(), 0);
-        assert.ok(created.every(element => element.html === null));
     });
 });
 
-test('renderEach uses a timer when animation frames are unavailable', async () => {
+test('queued create supports configuration, events, bindings, children, and lifecycle hooks', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('section');
+        sculptor.create('p', container).setText('first');
+        let label = sculptor.signal('queued');
+        let clicks = 0;
+        let mounts = 0;
+        let callbackElement = null;
+        let queued = sculptor.create('button', container, element => {
+            callbackElement = element;
+            element.attribute.set({ type: 'button', 'data-state': 'ready' });
+        })
+            .setText('Save')
+            .class.add('primary')
+            .setStyle({ color: 'red', display: 'inline-block' })
+            .attr('aria-label', label)
+            .on('click', () => clicks++)
+            .once('focus', () => clicks++)
+            .onMount(() => mounts++);
+        let child = queued.child.create('span').setText(' child');
+
+        assert.equal(callbackElement, queued);
+        assert.equal(queued.parent(), null);
+        assert.equal(queued.attribute.get('type'), 'button');
+        assert.equal(queued.attribute.get('data-state'), 'ready');
+        assert.equal(queued.attribute.get('aria-label'), 'queued');
+        assert.equal(queued.class.contains('primary'), true);
+        assert.equal(queued.html.style.color, 'red');
+        assert.equal(queued.children[0], child);
+        assert.equal(mounts, 0);
+
+        label.set('mounted');
+        sculptor.flush();
+        await frames.runNext();
+
+        assert.equal(queued.parent(), container);
+        assert.equal(queued.attribute.get('aria-label'), 'mounted');
+        assert.equal(mounts, 1);
+        queued.html.dispatchEvent(new Event('click'));
+        queued.html.dispatchEvent(new Event('focus'));
+        queued.html.dispatchEvent(new Event('focus'));
+        assert.equal(clicks, 2);
+
+        queued.off('click');
+        queued.html.dispatchEvent(new Event('click'));
+        assert.equal(clicks, 2);
+        label.dispose();
+        container.dispose();
+    });
+});
+
+test('create skips a queued element disposed before its frame', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        let first = sculptor.create('li', container).setText('one');
+        let removed = sculptor.create('li', container).setText('two');
+        removed.dispose();
+        await frames.runNext();
+        assert.deepEqual(container.children, [first]);
+        assert.equal(sculptor.rendering, false);
+    });
+});
+
+test('create uses a timer when animation frames are unavailable', async () => {
     let sculptor = new DomSculptor();
     let container = sculptor.create('ul');
-    let done = sculptor.renderEach([1, 2], container, {
-        render: item => sculptor.create('li').setText(item)
-    });
+    sculptor.create('li', container).setText('1');
+    sculptor.create('li', container).setText('2');
     assert.equal(container.children.length, 1);
-    await done;
+    await new Promise(resolve => setTimeout(resolve, 10));
     assert.deepEqual(container.children.map(element => element.html.textContent), ['1', '2']);
+    assert.equal(sculptor.rendering, false);
 });
 
 test('keyed lists preserve identity through reorder, insert, update, and remove', () => {

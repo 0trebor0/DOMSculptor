@@ -18,10 +18,7 @@ import { signal as browserSignal } from 'domsculptor/browser';
 
 let sculptor = new DomSculptor();
 let browserSculptor = new BrowserDomSculptor();
-let browserEachContainer = browserSculptor.create('ul');
-let browserEachRender = browserSculptor.renderEach([1], browserEachContainer, {
-    render: item => browserSculptor.create('li').setText(item)
-});
+let browserRendering: boolean = browserSculptor.rendering;
 let input = sculptor.create('input');
 input.html?.select();
 // @ts-expect-error input elements do not expose canvas methods
@@ -43,13 +40,8 @@ let view = tree({ tag: 'section', class: ['panel', 'active'], children: ['safe',
 // @ts-expect-error the tree API uses class, not classes
 tree({ tag: 'section', classes: ['invalid'] });
 let chunkContainer = sculptor.create('ul');
-let chunkRender: Promise<typeof chunkContainer> = sculptor.renderEach(
-    [{ label: 'one' }],
-    chunkContainer,
-    {
-        render: item => sculptor.create('li').setText(item.label)
-    }
-);
+sculptor.create('li', chunkContainer).setText('one');
+let renderingStatus: boolean = sculptor.rendering;
 let request: AsyncState<string> = asyncState<string>();
 request.run(async ({ signal: abortSignal }) => abortSignal.aborted ? 'cancelled' : 'done');
 
@@ -81,10 +73,10 @@ let element: DomElement<HTMLInputElement> = input;
 void doubled;
 void form;
 void view;
-void chunkRender;
+void renderingStatus;
 void request;
 void counter;
 void element;
 void browserSculptor;
-void browserEachRender;
+void browserRendering;
 void browserSignal;

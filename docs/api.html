@@ -45,7 +45,8 @@
         <article><h3><code>wrap(selectorOrNode)</code> / <code>tryWrap(...)</code></h3><p>Gets the stable wrapper for existing DOM. Strict wrapping throws when no node is found; the <code>try</code> form returns <code>null</code>.</p></article>
         <article><h3><code>adopt(node)</code></h3><p>Takes managed ownership of existing native markup so lifecycle and cleanup work like DOMSculptor-created elements.</p></article>
         <article><h3><code>tree(config)</code></h3><p>Creates a detached hierarchy from <code>tag</code>, <code>text</code>, <code>attributes</code>, <code>class</code>, <code>properties</code>, <code>on</code>, and recursive <code>children</code>. Text stays text; raw HTML is not interpreted.</p></article>
-        <article><h3><code>renderEach(items, container, options)</code></h3><p>Creates and appends one detached element per animation frame. Options require <code>render</code> and accept an <code>AbortSignal</code>. The Promise resolves with the container; cancellation, disposal, and failures clean only elements created by the operation.</p></article>
+        <article><h3><code>create(tag, parent?, callback?)</code></h3><p>Creates and returns a chainable element immediately. Each parent has its own queue: its first element mounts immediately and later calls mount one per animation frame.</p></article>
+        <article><h3><code>rendering</code></h3><p>A boolean that remains <code>true</code> while parented <code>create()</code> calls are waiting to mount and returns to <code>false</code> when the queue is empty.</p></article>
       </div>
     </section>
 

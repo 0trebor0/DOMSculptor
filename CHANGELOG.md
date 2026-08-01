@@ -7,8 +7,9 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Class-only `DomSculptor.renderEach()` progressive rendering that creates one
-  element per animation frame, with abort support and lifecycle-aware cleanup.
+- Automatic progressive mounting in parented `create()` calls. The first element
+  mounts immediately, later elements mount one per animation frame, and the
+  `rendering` property reports whether queued work remains.
 
 ## 2.0.0
 

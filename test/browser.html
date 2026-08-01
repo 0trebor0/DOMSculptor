@@ -17,10 +17,7 @@ let assert = (condition, message) => {
 try {
     assert(typeof BrowserDomSculptor === 'function', 'browser ESM default export did not resolve');
     let browserSculptor = new BrowserDomSculptor();
-    assert(
-        typeof browserSculptor.renderEach === 'function',
-        'browser ESM class did not expose renderEach'
-    );
+    assert(browserSculptor.rendering === false, 'browser ESM class did not expose rendering status');
     let sculptor = new DomSculptor();
     let failedBoundarySignal;
     let BrokenBrowserComponent = sculptor.component(() => {
@@ -66,11 +63,10 @@ try {
         Object.freeze({ label: 'four' }),
         Object.freeze({ label: 'five' })
     ]);
-    let chunkRender = sculptor.renderEach(chunkItems, chunkList, {
-        render: item => sculptor.create('li').setText(item.label)
-    });
+    chunkItems.forEach(item => sculptor.create('li', chunkList).setText(item.label));
     assert(chunkList.children.length === 1, 'incremental rendering created more than one initial element');
-    await chunkRender;
+    assert(sculptor.rendering, 'incremental rendering status did not become active');
+    while (sculptor.rendering) await new Promise(resolve => requestAnimationFrame(resolve));
     assert(
         chunkList.children.map(element => element.html.textContent).join(',') === 'one,two,three,four,five',
         'incremental rendering did not finish in source order'
@@ -88,6 +84,7 @@ try {
 
     let nativeCreated = sculptor.create('em', nativeDestination.html);
     assert(nativeCreated.parent() === nativeDestination, 'native parent creation lost wrapper ownership');
+    while (sculptor.rendering) await new Promise(resolve => requestAnimationFrame(resolve));
 
     let externalSource = sculptor.create('div');
     let externalDestination = sculptor.create('div');

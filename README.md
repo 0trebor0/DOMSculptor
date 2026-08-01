@@ -240,29 +240,24 @@ item.after(nextItem);
 
 ## Incremental Rendering
 
-`renderEach(items, container, options)` creates one element, yields to the browser
-for an animation frame, and then moves to the next item. This prevents a large
-initial collection from running its entire creation loop in one turn.
+Parented `create()` calls automatically mount one element per animation frame.
+The first element mounts immediately and later calls wait in DOMSculptor's
+internal queue, preventing a large collection from mounting in one turn.
 
 ```js
-let controller = new AbortController();
 let list = sculptor.create('ul', '#app');
-let rendering = sculptor.renderEach(items, list, {
-    signal: controller.signal,
-    render: item => sculptor.create('li').setText(item.label)
+
+items.forEach(item => {
+    sculptor.create('li', list).setText(item.label);
 });
 
-await rendering;
+console.log(sculptor.rendering); // true while mounts remain queued
 ```
 
-The renderer must return a live detached `DomElement`. The Promise resolves with
-the container when every item is appended. Aborting, disposing the container, or
-a rendering failure stops pending frames and disposes only the elements created
-by that operation; content that was already in the container remains untouched.
-
-`renderEach()` is an instance method on `DomSculptor`. It is different from
-`batch()`, which deduplicates scheduled reactive work but does not yield during a
-direct DOM creation loop.
+`create()` still returns each `DomElement` immediately, so normal chaining works.
+Only its insertion into the supplied parent is deferred. Queues are tracked per
+parent, so creating the list does not delay its first child. Detached `create()`
+and `element.child.create()` remain immediate for synchronous tree construction.
 
 ## DOM Traversal
 

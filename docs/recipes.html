@@ -57,16 +57,13 @@ items.list(list, {
   update: (row, item) =&gt; row.setText(item.label)
 });</code></pre></section>
 
-    <section><h2>Render a large collection progressively</h2><pre><code>let list = sculptor.create("ul");
-sculptor.mount(list, "#app");
+    <section><h2>Render a large collection progressively</h2><pre><code>let list = sculptor.create("ul", "#app");
 
-let controller = new AbortController();
-let rendering = sculptor.renderEach(items, list, {
-  signal: controller.signal,
-  render: item =&gt; sculptor.create("li").setText(item.label)
+items.forEach(item =&gt; {
+  sculptor.create("li", list).setText(item.label);
 });
 
-await rendering;</code></pre><p>Later chunks run on later animation frames. Abort the controller or dispose the list to stop and clean the unfinished operation.</p></section>
+console.log(sculptor.rendering); // true while mounts remain queued</code></pre><p>The first element mounts immediately and each later element mounts on a later animation frame. Creation stays chainable and does not require async code.</p></section>
 
     <section><h2>Load remote data</h2><pre><code>const users = sculptor.asyncState([]);
 const status = sculptor.create("p").attribute.set("aria-live", "polite");

@@ -1,3 +1,4 @@
+// Preserve every cleanup failure so one faulty callback cannot hide later failures.
 let throwCollectedErrors = (errors, message) => {
     if (!errors.length) return;
     if (errors.length === 1) throw errors[0];
@@ -5,6 +6,7 @@ let throwCollectedErrors = (errors, message) => {
     throw errors[0];
 };
 
+// Scopes give components and tests one deterministic owner for disposable resources.
 class DisposalScope {
     constructor(sculptor) {
         this._sculptor = sculptor;
@@ -52,12 +54,14 @@ class DisposalScope {
     }
 }
 
+// Accept cross-realm and test-double nodes without relying only on instanceof.
 let isNode = value => {
     if (typeof Node !== 'undefined' && value instanceof Node) return true;
     return value !== null && typeof value === 'object' &&
         typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
 };
 
+// DomElement wraps a native node while tracking ownership, listeners, and lifecycle.
 class DomElement {
     constructor(tagNameOrNode, sculptor) {
         this.html = isNode(tagNameOrNode) ? tagNameOrNode : document.createElement(tagNameOrNode);
@@ -75,6 +79,7 @@ class DomElement {
 
         let el = this;
 
+        // Fluent namespaces keep common DOM operations grouped without extra wrappers.
         this.attribute = {
             set(name, value = '') {
                 el._assertLive('attribute.set');
@@ -101,6 +106,7 @@ class DomElement {
             contains(value) { return el.html.classList.contains(value); }
         };
 
+        // Child operations update native DOM and DOMSculptor ownership together.
         this.child = {
             append(child) {
                 el._assertLive('child.append');
@@ -147,7 +153,7 @@ class DomElement {
             findAll(selector) {
                 return Array.from(el.html.querySelectorAll(selector), node => sculptor._wrapNode(node));
             },
-            create(name, opts = null) { return sculptor.create(name, el, opts); },
+            create(name, opts = null) { return sculptor.createIn(el, name, opts); },
             remove() { el.remove(); },
             clear() { el._clearChildren(); return el; },
             replace(previous, next) { return el._replaceChild(previous, next); }
@@ -155,6 +161,7 @@ class DomElement {
     }
 
     get children() {
+        // Callers receive a snapshot so internal ownership cannot be mutated externally.
         return Object.freeze(this._children.slice());
     }
 
@@ -228,6 +235,7 @@ class DomElement {
         let render = () => {
             if (this.html) apply(readable.get());
         };
+        // Reactive writes share the runtime scheduler and automatically stop on disposal.
         let unsubscribe = readable.subscribe(() => this._sculptor._schedule(render));
         let cleanup = () => {
             this._sculptor._scheduledJobs.delete(render);
@@ -290,6 +298,7 @@ class DomElement {
     }
 
     parent() {
+        // Native code may move nodes, so reconcile cached ownership with the real DOM.
         let parentNode = this.html?.parentNode || null;
         if (this._parent?.html === parentNode) return this._parent;
         if (this._parent) this._detachFromParent();
@@ -347,6 +356,7 @@ class DomElement {
                 }
             }
         } else if (typeof event === 'string' && typeof callback === 'string') {
+            // Delegation keeps one listener on the managed root for repeated children.
             if (typeof options !== 'function') {
                 throw new TypeError('DomSculptor.on: delegated events require a handler function.');
             }
@@ -471,6 +481,7 @@ class DomElement {
         callbacks.forEach(callback => {
             try { callback(this); } catch (error) { errors.push(error); }
         });
+        // Descendants mounted inside a detached tree become mounted with their root.
         this._children.forEach(child => {
             try { child._notifyMount(); } catch (error) { errors.push(error); }
         });
@@ -510,6 +521,7 @@ class DomElement {
     }
 
     _clearChildren() {
+        // Dispose known wrappers before removing unknown native children.
         let firstError = null;
         this._children.slice().forEach(child => {
             if (child._parent !== this && child.html?.parentNode !== this.html) return;
@@ -535,6 +547,7 @@ class DomElement {
         }
         if (previousNode === nextNode) return this;
 
+        // Perform the native replacement first, then rebuild wrapper ownership.
         this.html.replaceChild(nextNode, previousNode);
         if (nextElement) nextElement._detachFromParent();
 
@@ -575,6 +588,7 @@ class DomElement {
     }
 
     dispose() {
+        // Disposal is permanent and reentrancy-safe; unmounting remains reversible.
         if (!this.html || this._removing) return;
         this._removing = true;
         let errors = [];
@@ -608,6 +622,7 @@ class DomElement {
     }
 }
 
+// DomSculptor owns scheduling, wrappers, rendering queues, state, and components.
 class DomSculptor {
     static _owners = new WeakMap();
 
@@ -621,6 +636,10 @@ class DomSculptor {
         this._batchDepth = 0;
         this._activeScope = null;
         this._disposalDepth = 0;
+        // A queue per parent lets unrelated DOM branches render independently.
+        this._renderQueues = new WeakMap();
+        this._activeRenderQueues = 0;
+        this.rendering = false;
         this._development = Boolean(options.development);
         this._onWarning = options.onWarning;
         this._activeComponents = new Set();
@@ -637,6 +656,7 @@ class DomSculptor {
     }
 
     _flushJobs() {
+        // Drain jobs added during a flush before returning to keep flush deterministic.
         this._flushPending = false;
         let errors = [];
         while (this._scheduledJobs.size) {
@@ -652,6 +672,7 @@ class DomSculptor {
     _requestFlush() {
         if (!this._scheduledJobs.size || this._flushPending || this._batchDepth) return;
         this._flushPending = true;
+        // Microtasks coalesce reactive writes without delaying them to a visual frame.
         queueMicrotask(() => {
             try { this._flushJobs(); }
             catch (error) { setTimeout(() => { throw error; }); }
@@ -670,6 +691,7 @@ class DomSculptor {
     _wrapNode(node) {
         let existing = this._elements.get(node);
         if (existing) return existing;
+        // One wrapper per native node prevents ownership splits across instances.
         let owned = DomSculptor._owners.get(node);
         if (owned) {
             this._warn(
@@ -691,6 +713,7 @@ class DomSculptor {
     }
 
     createContext(parent = null, initial = null) {
+        // Context lookup walks parents, allowing local overrides without copying values.
         if (parent != null && typeof parent.get !== 'function') {
             throw new TypeError('DomSculptor.createContext: parent must be a context.');
         }
@@ -725,6 +748,7 @@ class DomSculptor {
     }
 
     component(factory, options = {}) {
+        // Each component factory invocation receives an isolated disposal scope.
         if (typeof factory !== 'function') throw new TypeError('DomSculptor.component: expected a factory.');
         if (!options || typeof options !== 'object') {
             throw new TypeError('DomSculptor.component: options must be an object.');
@@ -803,6 +827,7 @@ class DomSculptor {
     }
 
     errorBoundary(componentFactory, fallback) {
+        // Failed component scopes are disposed before constructing the fallback UI.
         if (typeof componentFactory !== 'function') {
             throw new TypeError('DomSculptor.errorBoundary: expected a component factory.');
         }
@@ -824,6 +849,7 @@ class DomSculptor {
     }
 
     _resolveParent(parent) {
+        // Resolve selectors once and retain a wrapper when ownership is already known.
         if (parent instanceof DomElement) {
             if (!parent.html) {
                 this._warn('invalid-parent', 'Mount received a disposed parent.');
@@ -859,6 +885,7 @@ class DomSculptor {
     }
 
     mount(element, parent) {
+        // Components delegate mounting to their root while fragments restore their nodes.
         if (element && element.root instanceof DomElement && element._fragmentNodes) {
             if (element.disposed) throw new Error('DomSculptor.mount: component has been disposed.');
             let resolved = this._resolveParent(parent);
@@ -904,6 +931,7 @@ class DomSculptor {
     }
 
     unmount(element) {
+        // Unmount preserves wrappers and resources so the value can be mounted again.
         if (element && element.root instanceof DomElement && element._fragmentNodes) {
             if (element.disposed) throw new Error('DomSculptor.unmount: component has been disposed.');
             let errors = [];
@@ -960,7 +988,50 @@ class DomSculptor {
         }
         let element = this.createDetached(tagName);
         try {
-            if (parent != null) this.mount(element, parent);
+            if (parent != null) {
+                let resolved = this._resolveParent(parent);
+                let queue = this._renderQueues.get(resolved.node);
+                if (queue) {
+                    // Return the configured element now, but defer its DOM insertion.
+                    queue.push(element);
+                } else {
+                    // Mount the first element immediately so small renders stay instant.
+                    this.mount(element, resolved.element || resolved.node);
+                    queue = [];
+                    this._renderQueues.set(resolved.node, queue);
+                    this._activeRenderQueues++;
+                    this.rendering = true;
+                    let proceed = () => {
+                        // Each callback mounts at most one queued element for this parent.
+                        let next = queue.shift();
+                        if (!next) {
+                            this._renderQueues.delete(resolved.node);
+                            this._activeRenderQueues--;
+                            this.rendering = this._activeRenderQueues > 0;
+                            return;
+                        }
+                        try {
+                            // Disposed elements remain harmless while waiting in the queue.
+                            if (next.html) this.mount(next, resolved.element || resolved.node);
+                        } catch (error) {
+                            if (next.html) next.remove();
+                            setTimeout(() => { throw error; });
+                        }
+                        if (queue.length) {
+                            typeof requestAnimationFrame === 'function'
+                                ? requestAnimationFrame(proceed)
+                                : setTimeout(proceed, 0);
+                        } else {
+                            this._renderQueues.delete(resolved.node);
+                            this._activeRenderQueues--;
+                            this.rendering = this._activeRenderQueues > 0;
+                        }
+                    };
+                    typeof requestAnimationFrame === 'function'
+                        ? requestAnimationFrame(proceed)
+                        : setTimeout(proceed, 0);
+                }
+            }
             callback?.(element);
             return element;
         } catch (error) {
@@ -970,6 +1041,7 @@ class DomSculptor {
     }
 
     tree(config) {
+        // Tree configuration is applied to detached nodes before any optional mounting.
         if (!config || typeof config !== 'object' || Array.isArray(config)) {
             throw new TypeError('DomSculptor.tree: expected a configuration object.');
         }
@@ -1029,125 +1101,8 @@ class DomSculptor {
         return element;
     }
 
-    async renderEach(items, container, options) {
-        if (!Array.isArray(items)) {
-            throw new TypeError('DomSculptor.renderEach: expected an array.');
-        }
-        if (!(container instanceof DomElement) || !container.html) {
-            throw new TypeError('DomSculptor.renderEach: expected a live DomElement container.');
-        }
-        if (!options || typeof options !== 'object' || Array.isArray(options)) {
-            throw new TypeError('DomSculptor.renderEach: expected an options object.');
-        }
-        if (typeof options.render !== 'function') {
-            throw new TypeError('DomSculptor.renderEach: expected a render function.');
-        }
-        let signal = options.signal ?? null;
-        if (signal != null && (
-            typeof signal.aborted !== 'boolean' ||
-            typeof signal.addEventListener !== 'function' ||
-            typeof signal.removeEventListener !== 'function'
-        )) {
-            throw new TypeError('DomSculptor.renderEach: signal must be an AbortSignal.');
-        }
-
-        let values = items.slice();
-        let created = [];
-        let active = true;
-        let cancelled = false;
-        let cancelFrame = null;
-        let resumeFrame = null;
-        let cleanupErrors = [];
-        let abortError = () => {
-            let error = new Error('DomSculptor.renderEach: aborted.');
-            error.name = 'AbortError';
-            return error;
-        };
-        let cleanupCreated = () => {
-            created.slice().reverse().forEach(element => {
-                if (!element.html) return;
-                try { element.dispose(); }
-                catch (error) { cleanupErrors.push(error); }
-            });
-        };
-        let cancel = () => {
-            if (!active || cancelled) return;
-            cancelled = true;
-            cancelFrame?.();
-            cancelFrame = null;
-            cleanupCreated();
-            let resume = resumeFrame;
-            resumeFrame = null;
-            resume?.();
-        };
-        let waitForFrame = () => new Promise(resolve => {
-            resumeFrame = () => {
-                cancelFrame = null;
-                resumeFrame = null;
-                resolve();
-            };
-            if (typeof requestAnimationFrame === 'function') {
-                let id = requestAnimationFrame(() => resumeFrame?.());
-                cancelFrame = () => {
-                    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id);
-                };
-            } else {
-                let id = setTimeout(() => resumeFrame?.(), 0);
-                cancelFrame = () => clearTimeout(id);
-            }
-        });
-        let releaseContainerTracking = () => {
-            container._removeCallbacks = container._removeCallbacks.filter(callback => callback !== cancel);
-        };
-
-        container.onDispose(cancel);
-        this._track(cancel);
-        if (signal?.aborted) cancel();
-        else signal?.addEventListener('abort', cancel, { once: true });
-
-        try {
-            if (cancelled || !container.html) throw abortError();
-            let index = 0;
-            while (index < values.length) {
-                if (cancelled || !container.html) throw abortError();
-                let element = options.render(values[index], index);
-                if (!(element instanceof DomElement) || !element.html || element.html.parentNode) {
-                    throw new TypeError(
-                        'DomSculptor.renderEach: render must return a live detached DomElement.'
-                    );
-                }
-                created.push(element);
-                if (cancelled || !container.html) throw abortError();
-                container.child.append(element);
-                index++;
-                if (index < values.length) {
-                    await waitForFrame();
-                    if (cancelled || !container.html) throw abortError();
-                }
-            }
-            active = false;
-            signal?.removeEventListener('abort', cancel);
-            releaseContainerTracking();
-            created = [];
-            values = [];
-            return container;
-        } catch (error) {
-            active = false;
-            signal?.removeEventListener('abort', cancel);
-            releaseContainerTracking();
-            cleanupCreated();
-            let errors = [error, ...cleanupErrors];
-            created = [];
-            values = [];
-            cleanupErrors = [];
-            throwCollectedErrors(
-                errors,
-                'DomSculptor.renderEach cleanup failed.'
-            );
-        }
-    }
-
     when(condition, branch, options = {}) {
+        // Conditional branches reuse preserved nodes or dispose factory-owned nodes.
         if (!condition || typeof condition.get !== 'function' || typeof condition.subscribe !== 'function') {
             throw new TypeError('DomSculptor.when: expected a signal condition.');
         }
@@ -1218,6 +1173,7 @@ class DomSculptor {
     }
 
     wrap(selectorOrNode) {
+        // Strict wrapping reports invalid selectors; tryWrap provides the nullable form.
         let node;
         if (typeof selectorOrNode === 'string') {
             node = document.querySelector(selectorOrNode);
@@ -1239,6 +1195,7 @@ class DomSculptor {
     }
 
     state(initial) {
+        // Signals deliver nested writes in order and remain synchronous at their core.
         let sculptor = this;
         let value = initial;
         let subscribers = [];
@@ -1247,6 +1204,7 @@ class DomSculptor {
         let pendingNotifications = [];
 
         let autoUnsub = (element, unsub) => {
+            // DOM bindings cannot outlive the element that owns their subscription.
             element.onRemove(unsub);
             sculptor._track(unsub);
         };
@@ -1261,6 +1219,7 @@ class DomSculptor {
                 if (Object.is(value, next)) return;
                 value = next;
                 let errors = [];
+                // Queue nested writes so every subscriber sees the same value order.
                 pendingNotifications.push(next);
                 if (notifying) return;
                 notifying = true;
@@ -1323,6 +1282,7 @@ class DomSculptor {
                 }
                 let initial = String(transform(value) ?? '');
                 element.setText(initial);
+                // Update one text node instead of replacing unrelated DOM on every write.
                 let textNode = element.html.firstChild;
                 if (!textNode || textNode.nodeType !== 3) {
                     textNode = document.createTextNode(initial);
@@ -1380,6 +1340,7 @@ class DomSculptor {
                     throw new TypeError('DomSculptor.signal.list: expected a DomElement container.');
                 }
                 if (renderFn && typeof renderFn === 'object') {
+                    // Keyed lists preserve element identity across inserts and reorders.
                     let options = renderFn;
                     if (typeof options.key !== 'function' || typeof options.render !== 'function') {
                         throw new TypeError('DomSculptor.signal.list: keyed lists require key and render functions.');
@@ -1401,6 +1362,7 @@ class DomSculptor {
                         let keys = keysFor(items);
                         let ownerDocument = container.html.ownerDocument ||
                             (typeof document !== 'undefined' ? document : null);
+                        // Preserve focus and selection while keyed rows move in the DOM.
                         let focused = ownerDocument?.activeElement || null;
                         let selection = focused && typeof focused.selectionStart === 'number'
                             ? {
@@ -1483,6 +1445,7 @@ class DomSculptor {
                     throw new TypeError('DomSculptor.signal.list: expected a render function.');
                 }
                 let elements = [];
+                // The simple list form replaces all rows when stable keys are unavailable.
                 let render = (items) => {
                     let firstError = null;
                     elements.forEach(el => {
@@ -1508,6 +1471,7 @@ class DomSculptor {
                 return container;
             },
             sync(element, options = {}) {
+                // Two-way form bindings normalize native control differences in one path.
                 if (!(element instanceof DomElement) || !element.html) {
                     throw new TypeError('DomSculptor.signal.sync: expected a live DomElement.');
                 }
@@ -1527,6 +1491,7 @@ class DomSculptor {
                         node
                     );
                 }
+                // IME composition must finish before input is written back to the signal.
                 let composing = false;
                 let read = () => {
                     if (typeof options.get === 'function') return options.get(node);
@@ -1624,6 +1589,7 @@ class DomSculptor {
     }
 
     computed(compute, dependencies = []) {
+        // Computed values are lazy until first read and then cache dependency updates.
         if (typeof compute !== 'function') throw new TypeError('DomSculptor.computed: expected a function.');
         if (!Array.isArray(dependencies)) throw new TypeError('DomSculptor.computed: dependencies must be an array.');
         dependencies.forEach(dependency => {
@@ -1677,6 +1643,7 @@ class DomSculptor {
     }
 
     effect(run, dependencies = []) {
+        // Effect cleanup runs before reruns and once more when the effect stops.
         if (typeof run !== 'function') throw new TypeError('DomSculptor.effect: expected a function.');
         if (!Array.isArray(dependencies)) throw new TypeError('DomSculptor.effect: dependencies must be an array.');
         dependencies.forEach(dependency => {
@@ -1717,6 +1684,7 @@ class DomSculptor {
     }
 
     batch(callback) {
+        // Nested batches defer scheduler flushing until the outermost batch completes.
         if (typeof callback !== 'function') throw new TypeError('DomSculptor.batch: expected a function.');
         this._batchDepth++;
         try { return callback(); }
@@ -1731,6 +1699,7 @@ class DomSculptor {
     }
 
     asyncState(initialData = null) {
+        // Run identifiers prevent stale async completions from replacing newer state.
         let state = this.state({ status: 'idle', data: initialData, error: null });
         let lastTask = null;
         let runId = 0;
@@ -1796,6 +1765,7 @@ class DomSculptor {
     }
 
     data(initial = {}) {
+        // Object stores compose one signal per key with keyed and global subscriptions.
         let sculptor = this;
         if (typeof initial !== 'object' || initial === null || Array.isArray(initial)) {
             throw new TypeError('DomSculptor.data: initial value must be an object.');
@@ -1951,6 +1921,7 @@ class DomSculptor {
     }
 }
 
+// Development mode adds diagnostics while preserving production runtime behavior.
 class DevDomSculptor extends DomSculptor {
     constructor(options = {}) {
         super({ ...options, development: true });
@@ -1968,6 +1939,7 @@ class DevDomSculptor extends DomSculptor {
     }
 }
 
+// The test harness owns a fixture root, components, warnings, and deterministic cleanup.
 let createTestHarness = (parent = document.body, options = {}) => {
     let warnings = [];
     let onWarning = options.onWarning;
@@ -2024,6 +1996,7 @@ let createTestHarness = (parent = document.body, options = {}) => {
     return harness;
 };
 
+// Lazy components expose loading state and abort unresolved work when disposed.
 let createLazyComponent = (sculptor, loader, options = {}) => {
     if (!(sculptor instanceof DomSculptor)) {
         throw new TypeError('DOMSculptor lazy: expected a DomSculptor instance.');
@@ -2038,6 +2011,7 @@ let createLazyComponent = (sculptor, loader, options = {}) => {
         let child = null;
         let active = true;
 
+        // Fallback values accept the same wrapper, component, node, text, or tree shapes.
         let show = value => {
             root.child.clear();
             if (value == null || value === false) return;
@@ -2090,6 +2064,7 @@ let createLazyComponent = (sculptor, loader, options = {}) => {
     }, { name: options.name || 'LazyComponent' });
 };
 
+// Convenience exports share one default runtime; class instances remain isolated.
 let defaultSculptor = new DomSculptor();
 let signal = initial => defaultSculptor.signal(initial);
 let state = initial => defaultSculptor.state(initial);

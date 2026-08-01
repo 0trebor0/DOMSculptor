@@ -15,8 +15,7 @@ assert.equal(typeof testing.createTestHarness, 'function');
 assert.equal(typeof lazy.createLazyComponent, 'function');
 
 let rootInstance = new packageRoot.default();
-assert.equal(typeof rootInstance.renderEach, 'function');
-assert.equal(packageRoot.renderEach, undefined);
+assert.equal(rootInstance.rendering, false);
 let convenienceMethods = [
     'signal', 'state', 'store', 'data', 'computed', 'effect', 'batch', 'flush',
     'tree', 'when', 'mount', 'unmount', 'asyncState', 'errorBoundary'

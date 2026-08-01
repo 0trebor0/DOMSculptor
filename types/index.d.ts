@@ -242,6 +242,7 @@ export class DevDomSculptor extends DomSculptor {
 }
 
 export default class DomSculptor {
+    readonly rendering: boolean;
     constructor(options?: DomSculptorOptions);
     createScope(): DisposalScope;
     createContextKey<T = unknown>(description?: string): ContextKey<T>;
@@ -265,10 +266,6 @@ export default class DomSculptor {
     wrap(selectorOrNode: string | Node): DomElement;
     tryWrap(selectorOrNode: string | Node): DomElement | null;
     tree<K extends string>(config: TreeConfig<K>): DomElement<ElementForTag<K>>;
-    renderEach<T, C extends DomElement>(items: readonly T[], container: C, options: {
-        render(item: T, index: number): DomElement;
-        signal?: AbortSignal;
-    }): Promise<C>;
     when(condition: Readable<unknown>, branch: DomChild | (() => DomChild), options?: {
         fallback?: DomChild | (() => DomChild);
         preserve?: boolean;
