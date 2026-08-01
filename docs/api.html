@@ -45,7 +45,7 @@
         <article><h3><code>wrap(selectorOrNode)</code> / <code>tryWrap(...)</code></h3><p>Gets the stable wrapper for existing DOM. Strict wrapping throws when no node is found; the <code>try</code> form returns <code>null</code>.</p></article>
         <article><h3><code>adopt(node)</code></h3><p>Takes managed ownership of existing native markup so lifecycle and cleanup work like DOMSculptor-created elements.</p></article>
         <article><h3><code>tree(config)</code></h3><p>Creates a detached hierarchy from <code>tag</code>, <code>text</code>, <code>attributes</code>, <code>class</code>, <code>properties</code>, <code>on</code>, and recursive <code>children</code>. Text stays text; raw HTML is not interpreted.</p></article>
-        <article><h3><code>renderChunks(items, container, options)</code></h3><p>Renders a bounded number of detached elements per animation frame. Options require <code>render</code> and accept <code>chunkSize</code> and an <code>AbortSignal</code>. The Promise resolves with the container; cancellation, disposal, and failures clean only elements created by the operation.</p></article>
+        <article><h3><code>renderEach(items, container, options)</code></h3><p>Creates and appends one detached element per animation frame. Options require <code>render</code> and accept an <code>AbortSignal</code>. The Promise resolves with the container; cancellation, disposal, and failures clean only elements created by the operation.</p></article>
       </div>
     </section>
 
@@ -120,13 +120,13 @@ count.dispose();</code></pre>
     <section id="testing">
       <p class="eyebrow">Optional entry</p>
       <h2><code>domsculptor/testing</code></h2>
-      <p><code>createTestHarness(parent?, options?)</code> creates an isolated development runtime and fixture root. Use <code>mount</code>, deterministic <code>flush</code>, <code>assertClean</code>, captured <code>warnings</code>, and idempotent <code>dispose</code>.</p>
+      <p><code>createTestHarness(parent?, options?)</code> creates an isolated development runtime and fixture root. Use <code>mount</code>, deterministic <code>flush</code>, <code>assertClean</code>, captured <code>warnings</code>, and idempotent <code>dispose</code>. This subpath resolves to the same <code>src/index.js</code> runtime and uses a focused declaration file.</p>
     </section>
 
     <section id="lazy">
       <p class="eyebrow">Optional entry</p>
       <h2><code>domsculptor/lazy</code></h2>
-      <p><code>createLazyComponent(sculptor, loader, options?)</code> converts a dynamic loader into a component factory. The loader receives <code>signal</code>, props, and context. Options configure name, wrapper tag, loading UI, error UI, and <code>onError</code>. Its API exposes a reactive loading/success/error status, and disposal aborts loading and disposes the loaded child.</p>
+      <p><code>createLazyComponent(sculptor, loader, options?)</code> converts a dynamic loader into a component factory. The loader receives <code>signal</code>, props, and context. Options configure name, wrapper tag, loading UI, error UI, and <code>onError</code>. Its API exposes a reactive loading/success/error status, and disposal aborts loading and disposes the loaded child. This subpath resolves to the same <code>src/index.js</code> runtime and uses a focused declaration file.</p>
     </section>
 
     <section class="closing" id="errors">

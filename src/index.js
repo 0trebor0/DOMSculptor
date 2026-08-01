@@ -1029,22 +1029,18 @@ class DomSculptor {
         return element;
     }
 
-    async renderChunks(items, container, options) {
+    async renderEach(items, container, options) {
         if (!Array.isArray(items)) {
-            throw new TypeError('DomSculptor.renderChunks: expected an array.');
+            throw new TypeError('DomSculptor.renderEach: expected an array.');
         }
         if (!(container instanceof DomElement) || !container.html) {
-            throw new TypeError('DomSculptor.renderChunks: expected a live DomElement container.');
+            throw new TypeError('DomSculptor.renderEach: expected a live DomElement container.');
         }
         if (!options || typeof options !== 'object' || Array.isArray(options)) {
-            throw new TypeError('DomSculptor.renderChunks: expected an options object.');
+            throw new TypeError('DomSculptor.renderEach: expected an options object.');
         }
         if (typeof options.render !== 'function') {
-            throw new TypeError('DomSculptor.renderChunks: expected a render function.');
-        }
-        let chunkSize = options.chunkSize ?? 100;
-        if (!Number.isInteger(chunkSize) || chunkSize < 1) {
-            throw new TypeError('DomSculptor.renderChunks: chunkSize must be a positive integer.');
+            throw new TypeError('DomSculptor.renderEach: expected a render function.');
         }
         let signal = options.signal ?? null;
         if (signal != null && (
@@ -1052,7 +1048,7 @@ class DomSculptor {
             typeof signal.addEventListener !== 'function' ||
             typeof signal.removeEventListener !== 'function'
         )) {
-            throw new TypeError('DomSculptor.renderChunks: signal must be an AbortSignal.');
+            throw new TypeError('DomSculptor.renderEach: signal must be an AbortSignal.');
         }
 
         let values = items.slice();
@@ -1063,7 +1059,7 @@ class DomSculptor {
         let resumeFrame = null;
         let cleanupErrors = [];
         let abortError = () => {
-            let error = new Error('DomSculptor.renderChunks: aborted.');
+            let error = new Error('DomSculptor.renderEach: aborted.');
             error.name = 'AbortError';
             return error;
         };
@@ -1113,20 +1109,17 @@ class DomSculptor {
             if (cancelled || !container.html) throw abortError();
             let index = 0;
             while (index < values.length) {
-                let end = Math.min(index + chunkSize, values.length);
-                while (index < end) {
-                    if (cancelled || !container.html) throw abortError();
-                    let element = options.render(values[index], index);
-                    if (!(element instanceof DomElement) || !element.html || element.html.parentNode) {
-                        throw new TypeError(
-                            'DomSculptor.renderChunks: render must return a live detached DomElement.'
-                        );
-                    }
-                    created.push(element);
-                    if (cancelled || !container.html) throw abortError();
-                    container.child.append(element);
-                    index++;
+                if (cancelled || !container.html) throw abortError();
+                let element = options.render(values[index], index);
+                if (!(element instanceof DomElement) || !element.html || element.html.parentNode) {
+                    throw new TypeError(
+                        'DomSculptor.renderEach: render must return a live detached DomElement.'
+                    );
                 }
+                created.push(element);
+                if (cancelled || !container.html) throw abortError();
+                container.child.append(element);
+                index++;
                 if (index < values.length) {
                     await waitForFrame();
                     if (cancelled || !container.html) throw abortError();
@@ -1149,7 +1142,7 @@ class DomSculptor {
             cleanupErrors = [];
             throwCollectedErrors(
                 errors,
-                'DomSculptor.renderChunks cleanup failed.'
+                'DomSculptor.renderEach cleanup failed.'
             );
         }
     }
@@ -1975,6 +1968,128 @@ class DevDomSculptor extends DomSculptor {
     }
 }
 
+let createTestHarness = (parent = document.body, options = {}) => {
+    let warnings = [];
+    let onWarning = options.onWarning;
+    let sculptor = new DevDomSculptor({
+        ...options,
+        onWarning(warning) {
+            warnings.push(warning);
+            onWarning?.(warning);
+        }
+    });
+    let root = sculptor.create('div');
+    if (parent != null) sculptor.mount(root, parent);
+    let components = new Set();
+    let disposed = false;
+    let harness = {
+        sculptor,
+        root,
+        warnings,
+        mount(value) {
+            if (disposed) throw new Error('DOMSculptor testing: harness has been disposed.');
+            let mounted = sculptor.mount(value, root);
+            if (value?.root instanceof DomElement && typeof value.dispose === 'function') {
+                components.add(value);
+            }
+            return mounted;
+        },
+        flush() {
+            sculptor.flush();
+            return harness;
+        },
+        assertClean() {
+            let leaks = sculptor.reportLeaks();
+            if (leaks) throw new Error(`DOMSculptor testing: ${leaks} component scope(s) remain active.`);
+            return harness;
+        },
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            let errors = [];
+            components.forEach(component => {
+                try { component.dispose(); } catch (error) { errors.push(error); }
+            });
+            components.clear();
+            try { root.dispose(); } catch (error) { errors.push(error); }
+            if (errors.length === 1) throw errors[0];
+            if (errors.length) {
+                throw new AggregateError(errors, 'DOMSculptor testing: multiple fixture cleanups failed.');
+            }
+        },
+        get disposed() {
+            return disposed;
+        }
+    };
+    return harness;
+};
+
+let createLazyComponent = (sculptor, loader, options = {}) => {
+    if (!(sculptor instanceof DomSculptor)) {
+        throw new TypeError('DOMSculptor lazy: expected a DomSculptor instance.');
+    }
+    if (typeof loader !== 'function') {
+        throw new TypeError('DOMSculptor lazy: expected a loader function.');
+    }
+    return sculptor.component((props, context) => {
+        let root = sculptor.create(options.tag || 'div');
+        let status = sculptor.signal({ status: 'loading', error: null });
+        let controller = new AbortController();
+        let child = null;
+        let active = true;
+
+        let show = value => {
+            root.child.clear();
+            if (value == null || value === false) return;
+            let rendered = typeof value === 'function' ? value(props, context) : value;
+            if (rendered instanceof DomElement || rendered?.root instanceof DomElement) {
+                sculptor.mount(rendered, root);
+            } else if (
+                typeof rendered === 'string' ||
+                rendered && typeof rendered === 'object' && typeof rendered.nodeType === 'number'
+            ) {
+                root.child.append(rendered);
+            } else {
+                root.child.append(sculptor.tree(rendered));
+            }
+        };
+
+        root.attribute.set('aria-busy', 'true');
+        show(options.loading);
+        Promise.resolve()
+            .then(() => loader({ signal: controller.signal, props, context }))
+            .then(module => {
+                if (!active) return;
+                let loaded = module?.default ?? module;
+                let result = typeof loaded === 'function' ? loaded(props, context) : loaded;
+                child = result?.root instanceof DomElement && typeof result.dispose === 'function'
+                    ? result
+                    : sculptor.component(() => result)(props, context);
+                root.child.clear();
+                sculptor.mount(child, root);
+                root.attribute.remove('aria-busy');
+                status.set({ status: 'success', error: null });
+            })
+            .catch(error => {
+                if (!active || controller.signal.aborted) return;
+                root.attribute.remove('aria-busy');
+                status.set({ status: 'error', error });
+                show(options.error ? () => options.error(error, props, context) : 'Unable to load this feature.');
+                options.onError?.(error);
+            });
+
+        return {
+            root,
+            api: { status },
+            dispose() {
+                active = false;
+                controller.abort();
+                child?.dispose();
+            }
+        };
+    }, { name: options.name || 'LazyComponent' });
+};
+
 let defaultSculptor = new DomSculptor();
 let signal = initial => defaultSculptor.signal(initial);
 let state = initial => defaultSculptor.state(initial);
@@ -2010,6 +2125,8 @@ export {
     unmount,
     asyncState,
     errorBoundary,
-    createDevSculptor
+    createDevSculptor,
+    createTestHarness,
+    createLazyComponent
 };
 export default DomSculptor;

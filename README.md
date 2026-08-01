@@ -55,6 +55,9 @@ its DOM, listeners, bindings, and owned descendants.
 | Test helpers | `import { createTestHarness } from 'domsculptor/testing'` |
 | Lazy components | `import { createLazyComponent } from 'domsculptor/lazy'` |
 
+All executable package APIs resolve to `src/index.js`. The testing and lazy
+subpaths keep separate declaration files only so editors show focused types.
+
 ### Browser ES module
 
 ```html
@@ -237,16 +240,14 @@ item.after(nextItem);
 
 ## Incremental Rendering
 
-`renderChunks(items, container, options)` progressively creates large collections
-without running the entire render loop in one turn. The first chunk is rendered
-immediately, then later chunks run once per animation frame. `chunkSize` defaults
-to `100`.
+`renderEach(items, container, options)` creates one element, yields to the browser
+for an animation frame, and then moves to the next item. This prevents a large
+initial collection from running its entire creation loop in one turn.
 
 ```js
 let controller = new AbortController();
 let list = sculptor.create('ul', '#app');
-let rendering = sculptor.renderChunks(items, list, {
-    chunkSize: 100,
+let rendering = sculptor.renderEach(items, list, {
     signal: controller.signal,
     render: item => sculptor.create('li').setText(item.label)
 });
@@ -259,7 +260,7 @@ the container when every item is appended. Aborting, disposing the container, or
 a rendering failure stops pending frames and disposes only the elements created
 by that operation; content that was already in the container remains untouched.
 
-`renderChunks()` is an instance method on `DomSculptor`. It is different from
+`renderEach()` is an instance method on `DomSculptor`. It is different from
 `batch()`, which deduplicates scheduled reactive work but does not yield during a
 direct DOM creation loop.
 

@@ -7,8 +7,8 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Class-only `DomSculptor.renderChunks()` progressive rendering with bounded
-  animation-frame chunks, abort support, and lifecycle-aware partial cleanup.
+- Class-only `DomSculptor.renderEach()` progressive rendering that creates one
+  element per animation frame, with abort support and lifecycle-aware cleanup.
 
 ## 2.0.0
 

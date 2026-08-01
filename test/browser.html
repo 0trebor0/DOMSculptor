@@ -5,7 +5,7 @@
 <pre id="result">running</pre>
 <script type="module">
 import DomSculptor from '../src/index.js';
-import { createLazyComponent } from '../lazy/index.js';
+import { createLazyComponent } from '../src/index.js';
 import BrowserDomSculptor from '../dist/domsculptor.esm.min.js';
 
 let assertions = 0;
@@ -18,8 +18,8 @@ try {
     assert(typeof BrowserDomSculptor === 'function', 'browser ESM default export did not resolve');
     let browserSculptor = new BrowserDomSculptor();
     assert(
-        typeof browserSculptor.renderChunks === 'function',
-        'browser ESM class did not expose renderChunks'
+        typeof browserSculptor.renderEach === 'function',
+        'browser ESM class did not expose renderEach'
     );
     let sculptor = new DomSculptor();
     let failedBoundarySignal;
@@ -66,15 +66,14 @@ try {
         Object.freeze({ label: 'four' }),
         Object.freeze({ label: 'five' })
     ]);
-    let chunkRender = sculptor.renderChunks(chunkItems, chunkList, {
-        chunkSize: 2,
+    let chunkRender = sculptor.renderEach(chunkItems, chunkList, {
         render: item => sculptor.create('li').setText(item.label)
     });
-    assert(chunkList.children.length === 2, 'chunk rendering did not enforce its initial chunk boundary');
+    assert(chunkList.children.length === 1, 'incremental rendering created more than one initial element');
     await chunkRender;
     assert(
         chunkList.children.map(element => element.html.textContent).join(',') === 'one,two,three,four,five',
-        'chunk rendering did not finish in source order'
+        'incremental rendering did not finish in source order'
     );
     chunkList.dispose();
 

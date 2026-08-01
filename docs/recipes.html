@@ -61,8 +61,7 @@ items.list(list, {
 sculptor.mount(list, "#app");
 
 let controller = new AbortController();
-let rendering = sculptor.renderChunks(items, list, {
-  chunkSize: 100,
+let rendering = sculptor.renderEach(items, list, {
   signal: controller.signal,
   render: item =&gt; sculptor.create("li").setText(item.label)
 });

@@ -4,9 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 test('runtime sources remain compatible with strict content security policy', async () => {
     let sources = await Promise.all([
-        '../src/index.js',
-        '../testing/index.js',
-        '../lazy/index.js'
+        '../src/index.js'
     ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
     let runtime = sources.join('\n');
     assert.doesNotMatch(runtime, /\beval\s*\(/);

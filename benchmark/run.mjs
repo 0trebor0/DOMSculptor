@@ -123,16 +123,15 @@ try {
             }
             return samples;
         };
-        let runChunked = async (iterations = 5) => {
+        let runEach = async (iterations = 5) => {
             let samples = [];
             for (let sample = 0; sample < iterations; sample++) {
                 let sculptor = new DomSculptor();
-                let items = Array.from({ length: 1_000 }, (_, id) => ({ id, label: `Row ${id}` }));
+                let items = Array.from({ length: 100 }, (_, id) => ({ id, label: `Row ${id}` }));
                 let container = sculptor.create('div');
                 sculptor.mount(container, document.body);
                 let start = performance.now();
-                await sculptor.renderChunks(items, container, {
-                    chunkSize: 100,
+                await sculptor.renderEach(items, container, {
                     render: item => sculptor.create('div').setText(item.label)
                 });
                 samples.push(performance.now() - start);
@@ -154,7 +153,7 @@ try {
             'listener-subscription-cleanup'
         ];
         let results = Object.fromEntries(names.map(name => [name, run(name)]));
-        results['render-chunks-1000'] = await runChunked();
+        results['render-each-100'] = await runEach();
         return results;
     });
 

@@ -20,13 +20,13 @@
     },
     "./testing": {
       "types": "./testing/index.d.ts",
-      "import": "./testing/index.js",
-      "default": "./testing/index.js"
+      "import": "./src/index.js",
+      "default": "./src/index.js"
     },
     "./lazy": {
       "types": "./lazy/index.d.ts",
-      "import": "./lazy/index.js",
-      "default": "./lazy/index.js"
+      "import": "./src/index.js",
+      "default": "./src/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -53,7 +53,7 @@
     "build": "webpack --config webpack.config.cjs",
     "benchmark": "node benchmark/run.mjs",
     "size": "node test/size.test.mjs",
-    "lint": "node --check src/index.js && node --check testing/index.js && node --check lazy/index.js && node --check benchmark/run.mjs && node --check test/index.test.mjs && node --check test/docs.test.mjs && node --check test/security.test.mjs && node --check test/browser.test.mjs && node --check test/size.test.mjs && node --check test/package.test.mjs",
+    "lint": "node --check src/index.js && node --check benchmark/run.mjs && node --check test/index.test.mjs && node --check test/docs.test.mjs && node --check test/security.test.mjs && node --check test/browser.test.mjs && node --check test/size.test.mjs && node --check test/package.test.mjs",
     "check": "npm run lint && npm test && npm run test:types && npm run build && npm run size && npm run test:package"
   },
   "repository": {

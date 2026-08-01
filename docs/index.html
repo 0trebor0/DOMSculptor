@@ -243,7 +243,7 @@ const Account = sculptor.component(
       <p class="eyebrow">API reference</p>
       <h2>One direct-DOM vocabulary.</h2>
       <div class="api">
-        <article><h3>Core</h3><p>create · createIn · mount · unmount · adopt · tree · renderChunks · when</p></article>
+        <article><h3>Core</h3><p>create · createIn · mount · unmount · adopt · tree · renderEach · when</p></article>
         <article><h3>Reactive</h3><p>signal · store · computed · effect · batch · flush · asyncState</p></article>
         <article><h3>Element</h3><p>child · attribute · class · text · attr · focus · events · lifecycle · dispose</p></article>
         <article><h3>Composition</h3><p>createScope · component · createContext · createContextKey</p></article>
@@ -253,7 +253,7 @@ const Account = sculptor.component(
         <article><h3>Creation and ownership</h3><p><code>create(tag, parent?, callback?)</code> returns a detached typed wrapper unless a parent is supplied. <code>createIn(parent, tag)</code> inserts immediately. <code>mount</code>, <code>unmount</code>, <code>adopt</code>, <code>wrap</code>, <code>tryWrap</code>, and <code>tryMount</code> make failure and lifetime explicit.</p></article>
         <article><h3>Elements</h3><p><code>setText</code>, <code>text</code>, <code>attr</code>, <code>classToggle</code>, <code>styleValue</code>, <code>bindProperty</code>, child operations, traversal, focus helpers, lifecycle hooks, native events, delegation, and <code>dispose</code>.</p></article>
         <article><h3>Reactivity</h3><p><code>signal/state</code>, typed <code>store/data</code>, lazy <code>computed</code>, cleanup-aware <code>effect</code>, <code>batch</code>, and test-oriented <code>flush</code>. Values update immediately; DOM work is microtask queued and deduplicated.</p></article>
-        <article><h3>Rendering and composition</h3><p><code>tree</code>, <code>renderChunks</code>, <code>when</code>, keyed <code>list</code>, <code>component</code>, <code>createScope</code>, and hierarchical context. Chunk rendering yields between bounded groups; component roots may be a node, wrapper, or <code>DocumentFragment</code>.</p></article>
+        <article><h3>Rendering and composition</h3><p><code>tree</code>, <code>renderEach</code>, <code>when</code>, keyed <code>list</code>, <code>component</code>, <code>createScope</code>, and hierarchical context. Incremental rendering creates one element per animation frame; component roots may be a node, wrapper, or <code>DocumentFragment</code>.</p></article>
         <article><h3>Forms and async</h3><p><code>bind/sync</code> handles native controls, IME, custom accessors, properties, caret-safe equal writes, and event selection. <code>asyncState</code> exposes idle, loading, refreshing, success, and error snapshots plus run, retry, cancel, and reset.</p></article>
         <article><h3>Error policy</h3><p>Programmer errors throw <code>TypeError</code>; creation and mounting failures throw; explicitly searching methods may return <code>null</code>; <code>tryWrap</code> and <code>tryMount</code> are non-throwing. Subscriber and cleanup failures are aggregated.</p></article>
       </div>
@@ -262,7 +262,7 @@ const Account = sculptor.component(
     <section id="performance">
       <p class="eyebrow">Performance guidance</p>
       <h2>Measure identity and cleanup before speed.</h2>
-      <p>Prefer keyed rows, use <code>renderChunks</code> for large initial collections, batch related writes, delegate repeated events, dispose scopes, and benchmark production builds. Report the browser, device, raw code, median, variance, and compressed bundle size.</p>
+      <p>Prefer keyed rows, use <code>renderEach</code> for large initial collections, batch related writes, delegate repeated events, dispose scopes, and benchmark production builds. Report the browser, device, raw code, median, variance, and compressed bundle size.</p>
     </section>
 
     <section id="migration">

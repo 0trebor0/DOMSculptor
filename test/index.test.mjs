@@ -114,8 +114,7 @@ let {
     tree,
     asyncState
 } = await import('../src/index.js');
-let { createTestHarness } = await import('../testing/index.js');
-let { createLazyComponent } = await import('../lazy/index.js');
+let { createTestHarness, createLazyComponent } = await import('../src/index.js');
 
 let withManualAnimationFrames = async callback => {
     let originalRequest = globalThis.requestAnimationFrame;
@@ -1340,7 +1339,7 @@ test('form binding supports checkbox arrays, multiple selects, custom accessors,
     assert.equal(composing.get(), '途中');
 });
 
-test('renderChunks preserves order and yields between bounded chunks', async () => {
+test('renderEach preserves order and yields after every element', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
@@ -1353,19 +1352,26 @@ test('renderChunks preserves order and yields between bounded chunks', async () 
             Object.freeze({ label: 'four' }),
             Object.freeze({ label: 'five' })
         ]);
-        let done = sculptor.renderChunks(items, container, {
-            chunkSize: 2,
+        let done = sculptor.renderEach(items, container, {
             render: (item, index) => {
                 rendered.push(index);
                 return sculptor.create('li').setText(item.label);
             }
         });
 
-        assert.deepEqual(rendered, [0, 1]);
+        assert.deepEqual(rendered, [0]);
         assert.equal(frames.pending(), 1);
         assert.deepEqual(container.children.map(element => element.html.textContent), [
-            'existing', 'one', 'two'
+            'existing', 'one'
         ]);
+
+        await frames.runNext();
+        assert.deepEqual(rendered, [0, 1]);
+        assert.equal(frames.pending(), 1);
+
+        await frames.runNext();
+        assert.deepEqual(rendered, [0, 1, 2]);
+        assert.equal(frames.pending(), 1);
 
         await frames.runNext();
         assert.deepEqual(rendered, [0, 1, 2, 3]);
@@ -1381,15 +1387,14 @@ test('renderChunks preserves order and yields between bounded chunks', async () 
     });
 });
 
-test('renderChunks cancellation and failures dispose only elements created by the operation', async () => {
+test('renderEach cancellation and failures dispose only elements created by the operation', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
         let existing = container.child.create('li').setText('existing');
         let created = [];
         let controller = new AbortController();
-        let done = sculptor.renderChunks([1, 2, 3], container, {
-            chunkSize: 2,
+        let done = sculptor.renderEach([1, 2, 3], container, {
             signal: controller.signal,
             render: item => {
                 let element = sculptor.create('li').setText(item);
@@ -1408,7 +1413,7 @@ test('renderChunks cancellation and failures dispose only elements created by th
         let alreadyAborted = new AbortController();
         alreadyAborted.abort();
         await assert.rejects(
-            sculptor.renderChunks([], container, {
+            sculptor.renderEach([], container, {
                 signal: alreadyAborted.signal,
                 render: () => sculptor.create('li')
             }),
@@ -1418,7 +1423,7 @@ test('renderChunks cancellation and failures dispose only elements created by th
         let abortDuringRender = new AbortController();
         let interrupted;
         await assert.rejects(
-            sculptor.renderChunks([1], container, {
+            sculptor.renderEach([1], container, {
                 signal: abortDuringRender.signal,
                 render: () => {
                     abortDuringRender.abort();
@@ -1432,23 +1437,21 @@ test('renderChunks cancellation and failures dispose only elements created by th
         assert.deepEqual(container.children, [existing]);
 
         let failed = [];
-        await assert.rejects(
-            sculptor.renderChunks([1, 2, 3], container, {
-                chunkSize: 3,
+        let failedRendering = sculptor.renderEach([1, 2, 3], container, {
                 render: item => {
                     if (item === 2) throw new Error('render failed');
                     let element = sculptor.create('li').setText(item);
                     failed.push(element);
                     return element;
                 }
-            }),
-            /render failed/
-        );
+            });
+        await frames.runNext();
+        await assert.rejects(failedRendering, /render failed/);
         assert.deepEqual(container.children, [existing]);
         assert.ok(failed.every(element => element.html === null));
 
         await assert.rejects(
-            sculptor.renderChunks([1], container, {
+            sculptor.renderEach([1], container, {
                 render: () => 'invalid'
             }),
             /live detached DomElement/
@@ -1457,21 +1460,16 @@ test('renderChunks cancellation and failures dispose only elements created by th
     });
 });
 
-test('renderChunks validates its contract and stops when its container is disposed', async () => {
+test('renderEach validates its contract and stops when its container is disposed', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
-        await assert.rejects(sculptor.renderChunks(null, container, { render: () => container }), /array/);
-        await assert.rejects(sculptor.renderChunks([], null, { render: () => container }), /container/);
-        await assert.rejects(sculptor.renderChunks([], container), /options/);
-        await assert.rejects(
-            sculptor.renderChunks([], container, { chunkSize: 0, render: () => container }),
-            /positive integer/
-        );
+        await assert.rejects(sculptor.renderEach(null, container, { render: () => container }), /array/);
+        await assert.rejects(sculptor.renderEach([], null, { render: () => container }), /container/);
+        await assert.rejects(sculptor.renderEach([], container), /options/);
 
         let created = [];
-        let done = sculptor.renderChunks([1, 2, 3], container, {
-            chunkSize: 1,
+        let done = sculptor.renderEach([1, 2, 3], container, {
             render: item => {
                 let element = sculptor.create('li').setText(item);
                 created.push(element);
@@ -1486,11 +1484,10 @@ test('renderChunks validates its contract and stops when its container is dispos
     });
 });
 
-test('renderChunks uses a timer when animation frames are unavailable', async () => {
+test('renderEach uses a timer when animation frames are unavailable', async () => {
     let sculptor = new DomSculptor();
     let container = sculptor.create('ul');
-    let done = sculptor.renderChunks([1, 2], container, {
-        chunkSize: 1,
+    let done = sculptor.renderEach([1, 2], container, {
         render: item => sculptor.create('li').setText(item)
     });
     assert.equal(container.children.length, 1);
