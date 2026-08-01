@@ -3,7 +3,7 @@ let path = require('path');
 let common = {
   mode: 'production',
   entry: './src/index.js',
-  devtool: 'source-map',
+  devtool: false,
 };
 
 module.exports = [
