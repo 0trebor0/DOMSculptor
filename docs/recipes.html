@@ -60,7 +60,7 @@ items.list(list, {
     <section><h2>Render a large collection progressively</h2><pre><code>let list = sculptor.create("ul", "#app");
 
 items.forEach(item =&gt; {
-  sculptor.create("li", list).setText(item.label);
+  sculptor.createProgressively("li", list).setText(item.label);
 });
 
 console.log(sculptor.rendering); // true while mounts remain queued</code></pre><p>The first element mounts immediately and each later element mounts on a later animation frame. Creation stays chainable and does not require async code.</p></section>

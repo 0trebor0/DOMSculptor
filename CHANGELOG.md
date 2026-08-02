@@ -7,9 +7,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Automatic progressive mounting in parented `create()` calls. The first element
-  mounts immediately, later elements mount one per animation frame, and the
-  `rendering` property reports whether queued work remains.
+- Explicit `createProgressively(tag, parent, callback?)` mounting. The first
+  element mounts immediately, later elements mount one per animation frame, and
+  the `rendering` property reports whether queued work remains. Parented
+  `create()` calls remain synchronous.
 
 ## 2.0.0
 

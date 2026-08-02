@@ -1339,12 +1339,26 @@ test('form binding supports checkbox arrays, multiple selects, custom accessors,
     assert.equal(composing.get(), '途中');
 });
 
-test('create mounts one parented element per frame while preserving chaining and order', async () => {
+test('create mounts parented elements immediately', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
         let items = ['one', 'two', 'three'];
         let created = items.map(item => sculptor.create('li', container).setText(item));
+
+        assert.deepEqual(container.children, created);
+        assert.deepEqual(container.children.map(element => element.html.textContent), items);
+        assert.equal(sculptor.rendering, false);
+        assert.equal(frames.pending(), 0);
+    });
+});
+
+test('createProgressively mounts one parented element per frame while preserving chaining and order', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        let items = ['one', 'two', 'three'];
+        let created = items.map(item => sculptor.createProgressively('li', container).setText(item));
 
         assert.equal(sculptor.rendering, true);
         assert.equal(frames.pending(), 1);
@@ -1364,12 +1378,12 @@ test('create mounts one parented element per frame while preserving chaining and
     });
 });
 
-test('create progressively mounts 100 elements without losing order or configuration', async () => {
+test('createProgressively mounts 100 elements without losing order or configuration', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
         let elements = Array.from({ length: 100 }, (_, index) =>
-            sculptor.create('li', container)
+            sculptor.createProgressively('li', container)
                 .setText(`Item ${index}`)
                 .attribute.set('data-index', index)
         );
@@ -1394,36 +1408,28 @@ test('create progressively mounts 100 elements without losing order or configura
     });
 });
 
-test('create handles nested parents without requiring mount', async () => {
-    await withManualAnimationFrames(async frames => {
-        let sculptor = new DomSculptor();
-        let container = sculptor.create('ul', document.body);
-        let first = sculptor.create('li', container).setText('one');
-        let second = sculptor.create('li', container).setText('two');
+test('create handles nested parents immediately without requiring mount', () => {
+    let sculptor = new DomSculptor();
+    let container = sculptor.create('ul', document.body);
+    let first = sculptor.create('li', container).setText('one');
+    let second = sculptor.create('li', container).setText('two');
 
-        assert.equal(container.html.parentNode, document.body);
-        assert.deepEqual(container.children, [first]);
-        assert.equal(second.html.parentNode, null);
-        assert.equal(sculptor.rendering, true);
-
-        await frames.runNext();
-        await frames.runNext();
-        assert.deepEqual(container.children, [first, second]);
-        assert.equal(sculptor.rendering, false);
-        container.dispose();
-    });
+    assert.equal(container.html.parentNode, document.body);
+    assert.deepEqual(container.children, [first, second]);
+    assert.equal(sculptor.rendering, false);
+    container.dispose();
 });
 
-test('queued create supports configuration, events, bindings, children, and lifecycle hooks', async () => {
+test('queued createProgressively supports configuration, events, bindings, children, and lifecycle hooks', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('section');
-        sculptor.create('p', container).setText('first');
+        sculptor.createProgressively('p', container).setText('first');
         let label = sculptor.signal('queued');
         let clicks = 0;
         let mounts = 0;
         let callbackElement = null;
-        let queued = sculptor.create('button', container, element => {
+        let queued = sculptor.createProgressively('button', container, element => {
             callbackElement = element;
             element.attribute.set({ type: 'button', 'data-state': 'ready' });
         })
@@ -1466,12 +1472,47 @@ test('queued create supports configuration, events, bindings, children, and life
     });
 });
 
-test('create skips a queued element disposed before its frame', async () => {
+test('createProgressively requires a parent and validates its callback', () => {
+    let sculptor = new DomSculptor();
+    let container = sculptor.create('ul');
+    assert.throws(
+        () => sculptor.createProgressively('li', null),
+        /createProgressively: parent is required/
+    );
+    assert.throws(
+        () => sculptor.createProgressively('li', container, 'invalid'),
+        /createProgressively: callback must be a function/
+    );
+});
+
+test('disposing a parent immediately disposes its progressively created elements', async () => {
     await withManualAnimationFrames(async frames => {
         let sculptor = new DomSculptor();
         let container = sculptor.create('ul');
-        let first = sculptor.create('li', container).setText('one');
-        let removed = sculptor.create('li', container).setText('two');
+        let first = sculptor.createProgressively('li', container).setText('one');
+        let second = sculptor.createProgressively('li', container).setText('two');
+        let third = sculptor.createProgressively('li', container).setText('three');
+
+        assert.equal(frames.pending(), 1);
+        assert.equal(sculptor.rendering, true);
+        container.dispose();
+
+        assert.equal(first.html, null);
+        assert.equal(second.html, null);
+        assert.equal(third.html, null);
+        assert.equal(sculptor.rendering, false);
+
+        await frames.runNext();
+        assert.equal(sculptor.rendering, false);
+    });
+});
+
+test('createProgressively skips a queued element disposed before its frame', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = sculptor.create('ul');
+        let first = sculptor.createProgressively('li', container).setText('one');
+        let removed = sculptor.createProgressively('li', container).setText('two');
         removed.dispose();
         await frames.runNext();
         assert.deepEqual(container.children, [first]);
@@ -1479,11 +1520,11 @@ test('create skips a queued element disposed before its frame', async () => {
     });
 });
 
-test('create uses a timer when animation frames are unavailable', async () => {
+test('createProgressively uses a timer when animation frames are unavailable', async () => {
     let sculptor = new DomSculptor();
     let container = sculptor.create('ul');
-    sculptor.create('li', container).setText('1');
-    sculptor.create('li', container).setText('2');
+    sculptor.createProgressively('li', container).setText('1');
+    sculptor.createProgressively('li', container).setText('2');
     assert.equal(container.children.length, 1);
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.deepEqual(container.children.map(element => element.html.textContent), ['1', '2']);

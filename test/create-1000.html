@@ -82,7 +82,7 @@
 
             Array.from({ length: 1000 }, (_, index) => {
                 sculptor
-                    .create('li', currentList)
+                    .createProgressively('li', currentList)
                     .setText(`Item ${index + 1}`)
                     .attribute.set('data-index', index);
             });

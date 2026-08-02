@@ -988,49 +988,84 @@ class DomSculptor {
         }
         let element = this.createDetached(tagName);
         try {
-            if (parent != null) {
-                let resolved = this._resolveParent(parent);
-                let queue = this._renderQueues.get(resolved.node);
-                if (queue) {
-                    // Return the configured element now, but defer its DOM insertion.
-                    queue.push(element);
-                } else {
-                    // Mount the first element immediately so small renders stay instant.
-                    this.mount(element, resolved.element || resolved.node);
-                    queue = [];
-                    this._renderQueues.set(resolved.node, queue);
-                    this._activeRenderQueues++;
-                    this.rendering = true;
-                    let proceed = () => {
-                        // Each callback mounts at most one queued element for this parent.
-                        let next = queue.shift();
-                        if (!next) {
-                            this._renderQueues.delete(resolved.node);
-                            this._activeRenderQueues--;
-                            this.rendering = this._activeRenderQueues > 0;
-                            return;
-                        }
-                        try {
-                            // Disposed elements remain harmless while waiting in the queue.
-                            if (next.html) this.mount(next, resolved.element || resolved.node);
-                        } catch (error) {
-                            if (next.html) next.remove();
-                            setTimeout(() => { throw error; });
-                        }
-                        if (queue.length) {
-                            typeof requestAnimationFrame === 'function'
-                                ? requestAnimationFrame(proceed)
-                                : setTimeout(proceed, 0);
-                        } else {
-                            this._renderQueues.delete(resolved.node);
-                            this._activeRenderQueues--;
-                            this.rendering = this._activeRenderQueues > 0;
-                        }
-                    };
-                    typeof requestAnimationFrame === 'function'
-                        ? requestAnimationFrame(proceed)
-                        : setTimeout(proceed, 0);
-                }
+            if (parent != null) this.mount(element, parent);
+            callback?.(element);
+            return element;
+        } catch (error) {
+            element.remove();
+            throw error;
+        }
+    }
+
+    createProgressively(tagName, parent, callback = null) {
+        if (parent == null) {
+            throw new TypeError('DomSculptor.createProgressively: parent is required.');
+        }
+        if (callback != null && typeof callback !== 'function') {
+            throw new TypeError('DomSculptor.createProgressively: callback must be a function.');
+        }
+        let element = this.createDetached(tagName);
+        try {
+            let resolved = this._resolveParent(parent);
+            let queue = this._renderQueues.get(resolved.node);
+            if (queue) {
+                // Return the configured element now, but defer its DOM insertion.
+                queue.push(element);
+            } else {
+                // Mount the first element immediately so small renders stay instant.
+                this.mount(element, resolved.element || resolved.node);
+                queue = [];
+                this._renderQueues.set(resolved.node, queue);
+                this._activeRenderQueues++;
+                this.rendering = true;
+                let active = true;
+                let cancelQueue;
+                let finishQueue = () => {
+                    if (!active) return;
+                    active = false;
+                    this._renderQueues.delete(resolved.node);
+                    this._activeRenderQueues--;
+                    this.rendering = this._activeRenderQueues > 0;
+                    if (resolved.element) {
+                        resolved.element._removeCallbacks = resolved.element._removeCallbacks
+                            .filter(callback => callback !== cancelQueue);
+                    }
+                };
+                cancelQueue = () => {
+                    let errors = [];
+                    while (queue.length) {
+                        let queued = queue.shift();
+                        try { queued.remove(); } catch (error) { errors.push(error); }
+                    }
+                    finishQueue();
+                    throwCollectedErrors(errors, 'Multiple queued elements failed to dispose.');
+                };
+                resolved.element?.onDispose(cancelQueue);
+                let proceed = () => {
+                    // Each callback mounts at most one queued element for this parent.
+                    let next = queue.shift();
+                    if (!next) {
+                        finishQueue();
+                        return;
+                    }
+                    try {
+                        // Disposed elements remain harmless while waiting in the queue.
+                        if (next.html) this.mount(next, resolved.element || resolved.node);
+                    } catch (error) {
+                        if (next.html) next.remove();
+                        setTimeout(() => { throw error; });
+                    }
+                    if (queue.length) {
+                        typeof requestAnimationFrame === 'function'
+                            ? requestAnimationFrame(proceed)
+                            : setTimeout(proceed, 0);
+                    } else {
+                        finishQueue();
+                    }
+                };
+                typeof requestAnimationFrame === 'function'
+                    ? requestAnimationFrame(proceed)
+                    : setTimeout(proceed, 0);
             }
             callback?.(element);
             return element;

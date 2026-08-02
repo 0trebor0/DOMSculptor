@@ -60,7 +60,7 @@ try {
         { length: 100 },
         (_, index) => Object.freeze({ label: `Item ${index}` })
     ));
-    chunkItems.forEach(item => sculptor.create('li', chunkList).setText(item.label));
+    chunkItems.forEach(item => sculptor.createProgressively('li', chunkList).setText(item.label));
     assert(chunkList.children.length === 1, 'incremental rendering created more than one initial element');
     assert(sculptor.rendering, 'incremental rendering status did not become active');
     while (sculptor.rendering) await new Promise(resolve => requestAnimationFrame(resolve));
@@ -70,6 +70,24 @@ try {
         'incremental rendering did not finish in source order'
     );
     chunkList.dispose();
+
+    let cancelledList = sculptor.create('ul');
+    let cancelledFirst = sculptor.createProgressively('li', cancelledList);
+    let cancelledSecond = sculptor.createProgressively('li', cancelledList);
+    cancelledList.dispose();
+    assert(
+        cancelledFirst.html === null && cancelledSecond.html === null && !sculptor.rendering,
+        'disposing an incremental parent left queued elements alive'
+    );
+
+    let immediateList = sculptor.create('ul');
+    sculptor.create('li', immediateList);
+    sculptor.create('li', immediateList);
+    assert(
+        immediateList.children.length === 2 && !sculptor.rendering,
+        'regular parented create did not mount synchronously'
+    );
+    immediateList.dispose();
 
     assert(parent.childrenOf()[0] === first, 'traversal created a duplicate wrapper');
     assert(sculptor.wrap(first.html) === first, 'wrap created a duplicate wrapper');
@@ -82,7 +100,6 @@ try {
 
     let nativeCreated = sculptor.create('em', nativeDestination.html);
     assert(nativeCreated.parent() === nativeDestination, 'native parent creation lost wrapper ownership');
-    while (sculptor.rendering) await new Promise(resolve => requestAnimationFrame(resolve));
 
     let externalSource = sculptor.create('div');
     let externalDestination = sculptor.create('div');

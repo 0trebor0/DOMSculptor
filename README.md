@@ -135,11 +135,10 @@ testing, lazy loading, and service boundaries, read the
 
 ## Creating Elements
 
-`create(tagName, parent?, callback?)` creates a detached element. Without a
-parent, call `mount()` after composing the subtree. With a parent, the first
-element mounts immediately and later calls for that parent enter the progressive
-render queue. A parent can be a CSS selector string, a `DomElement`, or a native
-`Node`.
+`create(tagName, parent?, callback?)` creates an element synchronously. Without
+a parent it stays detached, so call `mount()` after composing the subtree. With
+a parent it mounts immediately. A parent can be a CSS selector string, a
+`DomElement`, or a native `Node`.
 
 ```js
 let div = sculptor.create('div');
@@ -244,24 +243,26 @@ item.after(nextItem);
 
 ## Incremental Rendering
 
-Parented `create()` calls automatically mount one element per animation frame.
-The first element mounts immediately and later calls wait in DOMSculptor's
-internal queue, preventing a large collection from mounting in one turn.
+`createProgressively(tagName, parent, callback?)` mounts one element per
+animation frame. The first element mounts immediately and later calls wait in
+DOMSculptor's internal queue, preventing a large collection from mounting in one
+turn.
 
 ```js
 let list = sculptor.create('ul', '#app');
 
 items.forEach(item => {
-    sculptor.create('li', list).setText(item.label);
+    sculptor.createProgressively('li', list).setText(item.label);
 });
 
-console.log(sculptor.rendering); // true while a parented-create cycle is active
+console.log(sculptor.rendering); // true while progressive mounts remain queued
 ```
 
-`create()` still returns each `DomElement` immediately, so normal chaining works.
-Only its insertion into the supplied parent is deferred. Queues are tracked per
-parent, so creating the list does not delay its first child. Detached `create()`
-and `element.child.create()` remain immediate for synchronous tree construction.
+`createProgressively()` returns each `DomElement` immediately, so normal chaining
+works. Only its insertion into the supplied parent is deferred. Queues are
+tracked per parent, so creating the list does not delay its first child. Regular
+`create()`, `createIn()`, and `element.child.create()` remain immediate for
+synchronous tree construction.
 
 ## DOM Traversal
 

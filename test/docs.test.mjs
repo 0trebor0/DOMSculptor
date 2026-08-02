@@ -88,12 +88,13 @@ test('static documentation covers required guides and practical examples without
         'not legal advice'
     ]) assert.match(html, new RegExp(licenseTopic));
     assert.equal((api.match(/<code>create\(tag, parent\?, callback\?\)<\/code>/g) || []).length, 1);
+    assert.equal((api.match(/<code>createProgressively\(tag, parent, callback\?\)<\/code>/g) || []).length, 1);
     assert.match(api, /text\(readable\)/);
     assert.match(api, /attr\(name, readable\)/);
     assert.doesNotMatch(api, /text\(readable, transform\?/);
     assert.doesNotMatch(api, /attr\(name, readable, transform\?/);
     assert.match(api, /hook failure can leave the value mounted/);
-    assert.match(api, /first parented call even though that element mounts immediately/);
+    assert.match(api, /first call even though that element mounts immediately/);
     assert.match(api, /shared default <code>DomSculptor<\/code> instance/);
     assert.match(examples, /adopted wrapper remains reusable/);
     assert.match(html, /domsculptor@2\.0\.0\/dist\/domsculptor\.esm\.min\.js/);

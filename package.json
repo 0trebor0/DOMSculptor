@@ -35,7 +35,7 @@
     "types",
     "testing",
     "lazy",
-    "dist",
+    "dist/*.js",
     "benchmark",
     "docs",
     "LICENSE",

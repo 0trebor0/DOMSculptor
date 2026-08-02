@@ -49,7 +49,7 @@ let view = tree({ tag: 'section', class: ['panel', 'active'], children: ['safe',
 // @ts-expect-error the tree API uses class, not classes
 tree({ tag: 'section', classes: ['invalid'] });
 let chunkContainer = sculptor.create('ul');
-sculptor.create('li', chunkContainer).setText('one');
+sculptor.createProgressively('li', chunkContainer).setText('one');
 let renderingStatus: boolean = sculptor.rendering;
 let request: AsyncState<string> = asyncState<string>();
 request.run(async ({ signal: abortSignal }) => abortSignal.aborted ? 'cancelled' : 'done');

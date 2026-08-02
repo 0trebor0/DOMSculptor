@@ -108,7 +108,7 @@ sculptor.rendering;
 DomSculptor instance
 ├── wrapper ownership
 ├── reactive scheduler
-├── progressive create queues
+├── `createProgressively()` queues
 ├── components and scopes
 └── virtual lists
     ├── item snapshots
@@ -315,7 +315,7 @@ render(item, index) {
 DOMSculptor owns calls to `update()` and `dispose()`.
 
 Rows should be mounted directly into the virtual content layer. They should not
-pass through the regular progressive-create queue because virtualization already
+pass through the `createProgressively()` queue because virtualization already
 controls its own visual scheduling.
 
 ## Stable keys
@@ -600,7 +600,7 @@ Usage guidance should distinguish:
 | Situation | DOMSculptor feature |
 | --- | --- |
 | Small UI structure | `create()` |
-| Medium initial collection | Progressive parented `create()` |
+| Medium initial collection | `createProgressively()` |
 | Frequently changing stable rows | Keyed `state.list()` |
 | Thousands of scrollable records | `virtualList()` |
 

@@ -258,6 +258,7 @@ export default class DomSculptor {
     createIn<K extends string>(parent: string | Node | DomElement, tag: K, callback?: ((element: DomElement<ElementForTag<K>>) => void) | null): DomElement<ElementForTag<K>>;
     create<K extends string>(tag: K, callback?: ((element: DomElement<ElementForTag<K>>) => void) | null): DomElement<ElementForTag<K>>;
     create<K extends string>(tag: K, parent: string | Node | DomElement, callback?: ((element: DomElement<ElementForTag<K>>) => void) | null): DomElement<ElementForTag<K>>;
+    createProgressively<K extends string>(tag: K, parent: string | Node | DomElement, callback?: ((element: DomElement<ElementForTag<K>>) => void) | null): DomElement<ElementForTag<K>>;
     mount<T extends DomElement | ComponentInstance>(element: T, parent: string | Node | DomElement): T;
     tryMount<T extends DomElement | ComponentInstance>(element: T, parent: string | Node | DomElement): T | null;
     unmount<T extends DomElement | ComponentInstance>(element: T): T;

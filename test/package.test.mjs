@@ -16,6 +16,8 @@ assert.equal(typeof lazy.createLazyComponent, 'function');
 
 let rootInstance = new packageRoot.default();
 assert.equal(rootInstance.rendering, false);
+assert.equal(typeof rootInstance.createProgressively, 'function');
+assert.equal(typeof new browser.default().createProgressively, 'function');
 let convenienceMethods = [
     'signal', 'state', 'store', 'data', 'computed', 'effect', 'batch', 'flush',
     'tree', 'when', 'mount', 'unmount', 'asyncState', 'errorBoundary'
@@ -33,6 +35,10 @@ let manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.
 assert.equal(manifest.version, '2.0.0');
 assert.ok(manifest.files.includes('benchmark'));
 assert.ok(manifest.files.includes('docs'));
+assert.ok(manifest.files.includes('dist/*.js'));
+assert.ok(!manifest.files.includes('dist'));
+let gitIgnore = await readFile(new URL('../.gitignore', import.meta.url), 'utf8');
+assert.match(gitIgnore, /^\/dist\/\*\.map$/m);
 assert.deepEqual(await readdir(new URL('../src/', import.meta.url)), ['index.js']);
 assert.deepEqual(await readdir(new URL('../testing/', import.meta.url)), ['index.d.ts']);
 assert.deepEqual(await readdir(new URL('../lazy/', import.meta.url)), ['index.d.ts']);

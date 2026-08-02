@@ -123,7 +123,7 @@ try {
             }
             return samples;
         };
-        let runProgressiveCreate = async (iterations = 5) => {
+        let runCreate = async (method, iterations) => {
             let samples = [];
             for (let sample = 0; sample < iterations; sample++) {
                 let sculptor = new DomSculptor();
@@ -131,7 +131,7 @@ try {
                 let container = sculptor.create('div');
                 sculptor.mount(container, document.body);
                 let start = performance.now();
-                items.forEach(item => sculptor.create('div', container).setText(item.label));
+                items.forEach(item => sculptor[method]('div', container).setText(item.label));
                 while (sculptor.rendering) {
                     await new Promise(resolve => requestAnimationFrame(resolve));
                 }
@@ -154,7 +154,8 @@ try {
             'listener-subscription-cleanup'
         ];
         let results = Object.fromEntries(names.map(name => [name, run(name)]));
-        results['progressive-create-100'] = await runProgressiveCreate();
+        results['immediate-create-100'] = await runCreate('create', 25);
+        results['progressive-create-100'] = await runCreate('createProgressively', 5);
         return results;
     });
 
