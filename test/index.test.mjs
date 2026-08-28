@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 class FakeNode extends EventTarget {
     constructor(tagName = '') {
@@ -108,6 +109,7 @@ globalThis.document = {
 
 let {
     default: DomSculptor,
+    DevDomSculptor,
     createDevSculptor,
     signal,
     computed,
@@ -1691,4 +1693,1261 @@ test('async state aborts superseded work and supports cancel and reset', async (
     assert.deepEqual(request.get(), { status: 'success', data: 'newer', error: null });
     request.reset();
     assert.deepEqual(request.get(), { status: 'idle', data: null, error: null });
+});
+
+test('stores expose key membership, deletion, and per-key signals', () => {
+    let sculptor = new DomSculptor();
+    let store = sculptor.store({ color: 'red', size: 1 });
+
+    assert.equal(store.has('color'), true);
+    assert.equal(store.has('missing'), false);
+
+    let colorSignal = store.signal('color');
+    assert.equal(colorSignal.get(), 'red');
+    store.set('color', 'blue');
+    assert.equal(colorSignal.get(), 'blue');
+    colorSignal.set('green');
+    assert.equal(store.get('color'), 'green');
+    assert.throws(() => store.signal(1), TypeError);
+
+    let seen = [];
+    store.onChange('size', (next, previous) => seen.push([next, previous]));
+    assert.equal(store.delete('size'), true);
+    assert.deepEqual(seen, [[undefined, 1]]);
+    assert.equal(store.has('size'), false);
+    assert.equal(store.get('size'), undefined);
+    assert.equal('size' in store.get(), false);
+    assert.equal(store.delete('size'), false);
+
+    // A re-set key keeps the listeners registered before it was deleted.
+    store.set('size', 5);
+    assert.deepEqual(seen, [[undefined, 1], [5, undefined]]);
+    assert.equal(store.has('size'), true);
+
+    store.dispose();
+    assert.throws(() => store.delete('color'), /disposed/);
+});
+
+test('disposed elements report misuse instead of dereferencing a removed node', () => {
+    let sculptor = new DomSculptor();
+    let element = sculptor.create('input');
+    element.dispose();
+
+    assert.throws(() => element.on('click', () => {}), /disposed/);
+    assert.throws(() => element.once('click', () => {}), /disposed/);
+    assert.throws(() => element.getValue(), /disposed/);
+    assert.throws(() => element.setValue('x'), /disposed/);
+    assert.throws(() => element.hide(), /disposed/);
+    assert.throws(() => element.show(), /disposed/);
+});
+
+test('contexts carry values through child scopes with fallbacks and deletion', () => {
+    let sculptor = new DomSculptor();
+    let themeKey = sculptor.createContextKey('theme');
+    let missingKey = sculptor.createContextKey('missing');
+    assert.equal(typeof themeKey, 'symbol');
+
+    let root = sculptor.createContext().set(themeKey, 'dark');
+    assert.equal(root.get(themeKey), 'dark');
+    assert.equal(root.has(themeKey), true);
+    assert.equal(root.get(missingKey, 'fallback'), 'fallback');
+
+    let child = root.child();
+    assert.equal(child.get(themeKey), 'dark');
+    child.set(themeKey, 'light');
+    assert.equal(child.get(themeKey), 'light');
+    assert.equal(root.get(themeKey), 'dark');
+
+    assert.equal(root.delete(themeKey), true);
+    assert.equal(root.has(themeKey), false);
+
+    let seededKey = sculptor.createContextKey('seeded');
+    let seeded = sculptor.createContext(null, new Map([[seededKey, 'value']]));
+    assert.equal(seeded.get(seededKey), 'value');
+});
+
+test('components receive an injected context', () => {
+    let sculptor = new DomSculptor();
+    let serviceKey = sculptor.createContextKey('service');
+    let Consumer = sculptor.component((props, context) =>
+        sculptor.createDetached('div').setText(String(context.get(serviceKey))));
+
+    let instance = Consumer({}, sculptor.createContext().set(serviceKey, 'injected'));
+    assert.equal(instance.root.html.textContent, 'injected');
+    instance.dispose();
+});
+
+test('store observers are removed by key, by callback, and by abort signal', () => {
+    let sculptor = new DomSculptor();
+    let store = sculptor.store({ a: 1, b: 2 });
+
+    let kept = [];
+    let dropped = [];
+    let keptCallback = value => kept.push(value);
+    let droppedCallback = value => dropped.push(value);
+    store.onChange('a', keptCallback);
+    store.onChange('a', droppedCallback);
+    store.offChange('a', droppedCallback);
+    store.set('a', 10);
+    assert.deepEqual(kept, [10]);
+    assert.deepEqual(dropped, []);
+
+    store.offChange('a');
+    store.set('a', 11);
+    assert.deepEqual(kept, [10]);
+
+    let immediate = [];
+    store.onChange('b', value => immediate.push(value), { immediate: true });
+    assert.deepEqual(immediate, [2]);
+
+    let controller = new AbortController();
+    let aborted = [];
+    store.onChange('b', value => aborted.push(value), { signal: controller.signal });
+    controller.abort();
+    store.set('b', 3);
+    assert.deepEqual(aborted, []);
+
+    let anyChanges = [];
+    let stopAny = store.onAnyChange((key, value, previous) => anyChanges.push([key, value, previous]));
+    store.set('a', 12);
+    assert.deepEqual(anyChanges, [['a', 12, 11]]);
+    stopAny();
+    store.set('a', 13);
+    assert.equal(anyChanges.length, 1);
+
+    store.dispose();
+});
+
+test('the development constructor is exported and reports undisposed component scopes', () => {
+    let warnings = [];
+    let sculptor = createDevSculptor({ onWarning: warning => warnings.push(warning.code) });
+    assert.equal(sculptor instanceof DevDomSculptor, true);
+    assert.equal(sculptor instanceof DomSculptor, true);
+
+    let Feature = sculptor.component(() => sculptor.createDetached('div'), { name: 'Feature' });
+    let first = Feature();
+    let second = Feature();
+    assert.equal(sculptor.reportLeaks(), 2);
+
+    first.dispose();
+    assert.equal(sculptor.reportLeaks(), 1);
+    second.dispose();
+    assert.equal(sculptor.reportLeaks(), 0);
+    assert.equal(warnings.includes('component-scope-leak'), true);
+});
+
+test('direct bindings write every supported target', () => {
+    let sculptor = new DomSculptor();
+    let value = sculptor.signal('ready');
+
+    let attributeTarget = sculptor.create('div');
+    value.bindAttribute(attributeTarget, 'data-status');
+    assert.equal(attributeTarget.attribute.get('data-status'), 'ready');
+
+    let classTarget = sculptor.create('div');
+    value.bindClass(classTarget, 'is-ready', next => next === 'ready');
+    assert.equal(classTarget.class.contains('is-ready'), true);
+
+    let styleTarget = sculptor.create('div');
+    value.bindStyle(styleTarget, 'color', next => next === 'ready' ? 'green' : 'red');
+    assert.equal(styleTarget.html.style.color, 'green');
+
+    let visibleTarget = sculptor.create('div');
+    value.bindVisible(visibleTarget, next => next === 'ready');
+    assert.notEqual(visibleTarget.html.style.display, 'none');
+
+    let hiddenTarget = sculptor.create('div');
+    value.bindHidden(hiddenTarget, next => next === 'ready');
+    assert.equal(hiddenTarget.html.hidden, true);
+
+    let propertyTarget = sculptor.create('input');
+    value.bindProperty(propertyTarget, 'title');
+    assert.equal(propertyTarget.html.title, 'ready');
+
+    let valueTarget = sculptor.create('input');
+    value.bindValue(valueTarget);
+    assert.equal(valueTarget.html.value, 'ready');
+
+    value.set('busy');
+    sculptor.flush();
+    assert.equal(attributeTarget.attribute.get('data-status'), 'busy');
+    assert.equal(classTarget.class.contains('is-ready'), false);
+    assert.equal(styleTarget.html.style.color, 'red');
+    assert.equal(visibleTarget.html.style.display, 'none');
+    assert.equal(hiddenTarget.html.hidden, false);
+    assert.equal(propertyTarget.html.title, 'busy');
+    assert.equal(valueTarget.html.value, 'busy');
+
+    value.dispose();
+});
+
+test('targeted reactive nodes update without clearing sibling content', () => {
+    let sculptor = new DomSculptor();
+    let label = sculptor.signal('one');
+    let open = sculptor.signal(true);
+
+    let element = sculptor.create('div');
+    let sibling = element.child.create('span');
+    sibling.setText('kept');
+    element.text(label);
+    assert.equal(element.html.textContent, 'keptone');
+
+    element.attr('aria-expanded', open);
+    element.classToggle('active', open);
+    element.styleValue('opacity', label);
+    // A `true` value marks attribute presence, so the written value is empty.
+    assert.equal(element.attribute.get('aria-expanded'), '');
+    assert.equal(element.attribute.has('aria-expanded'), true);
+    assert.equal(element.class.contains('active'), true);
+    assert.equal(element.html.style.opacity, 'one');
+
+    label.set('two');
+    open.set(false);
+    sculptor.flush();
+    assert.equal(element.html.textContent, 'kepttwo');
+    assert.equal(element.attribute.has('aria-expanded'), false);
+    assert.equal(element.class.contains('active'), false);
+    assert.equal(element.html.style.opacity, 'two');
+
+    label.dispose();
+    open.dispose();
+});
+
+test('traversal and sibling insertion return wrapped elements', () => {
+    let sculptor = new DomSculptor();
+    let root = sculptor.create('div');
+    root.attribute.set('id', 'root');
+    let child = root.child.create('span');
+
+    assert.equal(root.childrenOf().length, 1);
+    assert.equal(root.childrenOf()[0].html, child.html);
+    assert.equal(root.children.length, 1);
+    assert.equal(child.parent().html, root.html);
+    assert.equal(child.closest('#root').html, root.html);
+    assert.equal(child.closest('#absent'), null);
+
+    let before = sculptor.create('i');
+    let after = sculptor.create('u');
+    child.before(before);
+    child.after(after);
+    assert.deepEqual(
+        root.html.childNodes.map(node => node.tagName),
+        ['i', 'span', 'u']
+    );
+
+    root.dispose();
+});
+
+test('mounting helpers resolve parents and report unusable targets', () => {
+    let sculptor = new DomSculptor();
+    let parent = sculptor.create('div');
+
+    let inside = sculptor.createIn(parent, 'span', element => element.setText('nested'));
+    assert.equal(inside.html.parentNode, parent.html);
+    assert.equal(inside.html.textContent, 'nested');
+
+    assert.equal(sculptor.tryMount(sculptor.create('div'), '#missing'), null);
+    assert.equal(sculptor.tryWrap('#missing'), null);
+    assert.throws(() => sculptor.wrap('#missing'), /could not find/);
+    assert.throws(() => sculptor.mount(sculptor.create('div'), '#missing'), /could not find/);
+
+    let existing = new FakeNode('section');
+    let adopted = sculptor.adopt(existing);
+    assert.equal(adopted.html, existing);
+
+    parent.dispose();
+});
+
+test('batch defers rendering until the outermost batch completes', () => {
+    let sculptor = new DomSculptor();
+    let value = sculptor.signal(0);
+    let element = sculptor.create('div');
+    let writes = 0;
+    value.bind(element, (next, target) => {
+        writes++;
+        target.setText(String(next));
+    });
+    assert.equal(writes, 1);
+
+    let returned = sculptor.batch(() => {
+        value.set(1);
+        value.set(2);
+        assert.equal(writes, 1);
+        return 'batched';
+    });
+    assert.equal(returned, 'batched');
+
+    sculptor.flush();
+    assert.equal(writes, 2);
+    assert.equal(element.html.textContent, '2');
+
+    assert.throws(() => sculptor.batch('not a function'), TypeError);
+    value.dispose();
+});
+
+test('conditional branches dispose factories unless preservation is requested', () => {
+    let sculptor = new DomSculptor();
+    let visible = sculptor.signal(true);
+    let host = sculptor.create('div');
+    let built = 0;
+    let disposed = 0;
+
+    let stop = sculptor.when(visible, () => {
+        built++;
+        return sculptor.createDetached('p').onDispose(() => disposed++);
+    }, { parent: host });
+    sculptor.flush();
+    assert.equal(built, 1);
+    assert.equal(host.html.childNodes.length, 1);
+
+    visible.set(false);
+    sculptor.flush();
+    assert.equal(disposed, 1);
+    assert.equal(host.html.childNodes.length, 0);
+
+    visible.set(true);
+    sculptor.flush();
+    assert.equal(built, 2);
+    stop();
+    assert.equal(disposed, 2);
+
+    let preservedHost = sculptor.create('div');
+    let preservedDisposals = 0;
+    let keep = sculptor.signal(true);
+    let stopPreserved = sculptor.when(keep, () =>
+        sculptor.createDetached('p').onDispose(() => preservedDisposals++),
+    { parent: preservedHost, preserve: true });
+    sculptor.flush();
+    keep.set(false);
+    sculptor.flush();
+    assert.equal(preservedDisposals, 0);
+
+    stopPreserved();
+    visible.dispose();
+    keep.dispose();
+});
+
+test('form binding options cover parsing and custom accessors', () => {
+    let sculptor = new DomSculptor();
+
+    let count = sculptor.signal(0);
+    let numeric = sculptor.create('input');
+    count.sync(numeric, { parse: value => Number(value) });
+    numeric.html.value = '42';
+    numeric.html.dispatchEvent(new Event('input'));
+    assert.equal(count.get(), 42);
+
+    count.set(7);
+    sculptor.flush();
+    assert.equal(numeric.html.value, '7');
+
+    let custom = sculptor.signal('start');
+    let holder = sculptor.create('div');
+    custom.sync(holder, {
+        event: 'custom-change',
+        get: node => node.customValue,
+        set: (node, value) => { node.customValue = value; }
+    });
+    assert.equal(holder.html.customValue, 'start');
+    holder.html.customValue = 'edited';
+    holder.html.dispatchEvent(new Event('custom-change'));
+    assert.equal(custom.get(), 'edited');
+
+    let twoWay = sculptor.signal('typed');
+    let input = sculptor.create('input');
+    twoWay.bind(input);
+    assert.equal(input.html.value, 'typed');
+    input.html.value = 'changed';
+    input.html.dispatchEvent(new Event('input'));
+    assert.equal(twoWay.get(), 'changed');
+
+    count.dispose();
+    custom.dispose();
+    twoWay.dispose();
+});
+
+test('async state retries the previous task and clears state on reset', async () => {
+    let sculptor = new DomSculptor();
+    let attempts = 0;
+    let request = sculptor.asyncState();
+
+    let statuses = [];
+    let unsubscribe = request.subscribe(snapshot => statuses.push(snapshot.status));
+
+    await request.run(async () => {
+        attempts++;
+        return 'attempt-' + attempts;
+    });
+    assert.equal(request.get().data, 'attempt-1');
+    assert.equal(statuses.includes('loading'), true);
+
+    let retried = await request.retry();
+    assert.equal(retried, 'attempt-2');
+    assert.equal(attempts, 2);
+    assert.equal(statuses.includes('refreshing'), true);
+
+    await assert.rejects(request.run(async () => { throw new Error('failed'); }), /failed/);
+    assert.equal(request.get().status, 'error');
+    assert.equal(request.get().error.message, 'failed');
+
+    request.reset();
+    assert.deepEqual(request.get(), { status: 'idle', data: null, error: null });
+    unsubscribe();
+});
+
+test('computed values track the signals they read when no dependency list is given', () => {
+    let sculptor = new DomSculptor();
+    let first = sculptor.signal('Ada');
+    let last = sculptor.signal('Lovelace');
+    let evaluations = 0;
+    let full = sculptor.computed(() => {
+        evaluations++;
+        return first.get() + ' ' + last.get();
+    });
+
+    assert.equal(evaluations, 0);
+    assert.equal(full.get(), 'Ada Lovelace');
+    assert.equal(evaluations, 1);
+
+    let values = [];
+    full.subscribe(value => values.push(value));
+    last.set('Byron');
+    assert.equal(full.get(), 'Ada Byron');
+    assert.deepEqual(values, ['Ada Byron']);
+    assert.equal(evaluations, 2);
+
+    first.set('Ada');
+    assert.equal(evaluations, 2);
+
+    full.dispose();
+    first.dispose();
+    last.dispose();
+});
+
+test('automatic tracking drops dependencies a branch no longer reads', () => {
+    let sculptor = new DomSculptor();
+    let useFirst = sculptor.signal(true);
+    let first = sculptor.signal('first');
+    let second = sculptor.signal('second');
+    let evaluations = 0;
+    let chosen = sculptor.computed(() => {
+        evaluations++;
+        return useFirst.get() ? first.get() : second.get();
+    });
+
+    assert.equal(chosen.get(), 'first');
+    assert.equal(evaluations, 1);
+
+    // The untaken branch is not a dependency yet.
+    second.set('second updated');
+    assert.equal(evaluations, 1);
+
+    useFirst.set(false);
+    assert.equal(chosen.get(), 'second updated');
+    assert.equal(evaluations, 2);
+
+    // The abandoned branch stops triggering work.
+    first.set('first updated');
+    assert.equal(evaluations, 2);
+
+    second.set('second again');
+    assert.equal(chosen.get(), 'second again');
+    assert.equal(evaluations, 3);
+
+    chosen.dispose();
+});
+
+test('automatically tracked computed values compose through other computed values', () => {
+    let sculptor = new DomSculptor();
+    let width = sculptor.signal(2);
+    let height = sculptor.signal(3);
+    let area = sculptor.computed(() => width.get() * height.get());
+    let label = sculptor.computed(() => 'area: ' + area.get());
+
+    assert.equal(label.get(), 'area: 6');
+    width.set(4);
+    assert.equal(area.get(), 12);
+    assert.equal(label.get(), 'area: 12');
+
+    label.dispose();
+    area.dispose();
+});
+
+test('effects track the signals they read and rerun through the scheduler', () => {
+    let sculptor = new DomSculptor();
+    let enabled = sculptor.signal(true);
+    let value = sculptor.signal(1);
+    let unrelated = sculptor.signal('ignored');
+    let runs = [];
+    let cleanups = 0;
+
+    let stop = sculptor.effect(() => {
+        runs.push(enabled.get() ? value.get() : null);
+        return () => cleanups++;
+    });
+    assert.deepEqual(runs, [1]);
+
+    value.set(2);
+    sculptor.flush();
+    assert.deepEqual(runs, [1, 2]);
+    assert.equal(cleanups, 1);
+
+    unrelated.set('still ignored');
+    sculptor.flush();
+    assert.equal(runs.length, 2);
+
+    enabled.set(false);
+    sculptor.flush();
+    assert.deepEqual(runs, [1, 2, null]);
+
+    // The effect stopped reading `value`, so writes to it no longer schedule work.
+    value.set(3);
+    sculptor.flush();
+    assert.equal(runs.length, 3);
+
+    stop();
+    assert.equal(cleanups, 3);
+    enabled.set(true);
+    sculptor.flush();
+    assert.equal(runs.length, 3);
+});
+
+test('an explicit empty dependency list opts out of automatic tracking', () => {
+    let sculptor = new DomSculptor();
+    let value = sculptor.signal(1);
+    let evaluations = 0;
+    let pinned = sculptor.computed(() => {
+        evaluations++;
+        return value.get();
+    }, []);
+
+    assert.equal(pinned.get(), 1);
+    value.set(2);
+    assert.equal(pinned.get(), 1);
+    assert.equal(evaluations, 1);
+
+    let runs = 0;
+    let stop = sculptor.effect(() => {
+        value.get();
+        runs++;
+    }, []);
+    value.set(3);
+    sculptor.flush();
+    assert.equal(runs, 1);
+
+    stop();
+    pinned.dispose();
+    value.dispose();
+});
+
+test('automatic tracking observes store keys and rejects invalid dependency lists', () => {
+    let sculptor = new DomSculptor();
+    let store = sculptor.store({ count: 1 });
+    let doubled = sculptor.computed(() => store.get('count') * 2);
+
+    assert.equal(doubled.get(), 2);
+    store.set('count', 5);
+    assert.equal(doubled.get(), 10);
+
+    assert.throws(() => sculptor.computed(() => 1, 'not an array'), TypeError);
+    assert.throws(() => sculptor.computed(() => 1, [{}]), TypeError);
+    assert.throws(() => sculptor.effect(() => {}, 'not an array'), TypeError);
+    assert.throws(() => sculptor.effect(() => {}, [{}]), TypeError);
+
+    doubled.dispose();
+    store.dispose();
+});
+
+test('disposing a tracked computed or effect releases every discovered subscription', () => {
+    let warnings = [];
+    let sculptor = createDevSculptor({ onWarning: warning => warnings.push(warning.code) });
+    let value = sculptor.signal(0);
+
+    let derived = sculptor.computed(() => value.get() + 1);
+    assert.equal(derived.get(), 1);
+    let stop = sculptor.effect(() => { value.get(); });
+
+    derived.dispose();
+    stop();
+    value.dispose();
+
+    assert.deepEqual(warnings.filter(code => code === 'subscription-cleanup'), []);
+});
+
+test('the runtime owns resources created without an explicit scope', () => {
+    let sculptor = new DomSculptor();
+    let parent = new FakeNode('div');
+    document.body.appendChild(parent);
+
+    let value = sculptor.signal(1);
+    let doubled = sculptor.computed(() => value.get() * 2);
+    let store = sculptor.store({ ready: true });
+    let request = sculptor.asyncState();
+    let element = sculptor.createIn(parent, 'span');
+    let effectRuns = 0;
+    sculptor.effect(() => { value.get(); effectRuns++; });
+
+    assert.equal(doubled.get(), 2);
+    assert.equal(effectRuns, 1);
+    assert.equal(sculptor.disposed, false);
+
+    sculptor.dispose();
+
+    assert.equal(sculptor.disposed, true);
+    assert.equal(value.disposed, true);
+    assert.equal(doubled.disposed, true);
+    assert.equal(store.disposed, true);
+    assert.equal(element.html, null);
+    assert.equal(parent.childNodes.length, 0);
+    assert.deepEqual(request.get(), { status: 'idle', data: null, error: null });
+
+    // A stopped effect no longer reacts, and disposal is idempotent.
+    sculptor.dispose();
+    assert.equal(sculptor.disposed, true);
+
+    document.body.removeChild(parent);
+});
+
+test('runtime disposal cleans listeners on wrapped nodes without removing them', () => {
+    let sculptor = new DomSculptor();
+    let existing = new FakeNode('section');
+    document.body.appendChild(existing);
+
+    let wrapped = sculptor.adopt(existing);
+    let clicks = 0;
+    wrapped.on('click', () => clicks++);
+    existing.dispatchEvent(new Event('click'));
+    assert.equal(clicks, 1);
+
+    sculptor.dispose();
+
+    // The node was borrowed, not created, so it stays in the document.
+    assert.equal(existing.parentNode, document.body);
+    existing.dispatchEvent(new Event('click'));
+    assert.equal(clicks, 1);
+
+    document.body.removeChild(existing);
+});
+
+test('an explicit scope takes ownership away from the runtime', () => {
+    let sculptor = new DomSculptor();
+    let scope = sculptor.createScope();
+    let scoped;
+    let outer = sculptor.signal('outer');
+
+    scope.run(() => { scoped = sculptor.signal('scoped'); });
+
+    scope.dispose();
+    assert.equal(scoped.disposed, true);
+    assert.equal(outer.disposed, false);
+
+    sculptor.dispose();
+    assert.equal(outer.disposed, true);
+});
+
+test('individually disposed resources release their runtime ownership entry', () => {
+    let sculptor = new DomSculptor();
+    let parent = new FakeNode('div');
+    let baseline = sculptor._rootScope._cleanups.size;
+
+    // Churning resources must not accumulate cleanup entries on the runtime.
+    for (let iteration = 0; iteration < 500; iteration++) {
+        let value = sculptor.signal(iteration);
+        let derived = sculptor.computed(() => value.get() + 1);
+        let element = sculptor.createIn(parent, 'span');
+        element.on('click', () => {});
+        derived.get();
+        element.dispose();
+        derived.dispose();
+        value.dispose();
+    }
+
+    assert.equal(sculptor._rootScope._cleanups.size, baseline);
+    sculptor.dispose();
+});
+
+// The router reads the History API, which the FakeNode document does not provide.
+let withFakeHistory = (initialPath, callback) => {
+    let originals = {
+        window: globalThis.window,
+        location: globalThis.location,
+        history: globalThis.history
+    };
+    let listeners = new Map();
+    let entries = [initialPath];
+    globalThis.location = { pathname: initialPath, hash: '' };
+    globalThis.history = {
+        pushState(state, title, path) {
+            entries.push(path);
+            globalThis.location.pathname = path;
+        },
+        replaceState(state, title, path) {
+            entries[entries.length - 1] = path;
+            globalThis.location.pathname = path;
+        }
+    };
+    globalThis.window = {
+        addEventListener(type, callbackToAdd) {
+            if (!listeners.has(type)) listeners.set(type, new Set());
+            listeners.get(type).add(callbackToAdd);
+        },
+        removeEventListener(type, callbackToRemove) {
+            listeners.get(type)?.delete(callbackToRemove);
+        }
+    };
+    let back = path => {
+        globalThis.location.pathname = path;
+        listeners.get('popstate')?.forEach(listener => listener());
+    };
+    try {
+        return callback({ back, entries, listenerCount: type => listeners.get(type)?.size ?? 0 });
+    } finally {
+        for (let key of ['window', 'location', 'history']) {
+            if (originals[key] === undefined) delete globalThis[key];
+            else globalThis[key] = originals[key];
+        }
+    }
+};
+
+test('the router mounts one matching route at a time and passes parameters', () => {
+    withFakeHistory('/', ({ back }) => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let seen = [];
+
+        let router = sculptor.router({
+            '/': () => sculptor.createDetached('div').setText('home'),
+            '/users/:id': snapshot => {
+                seen.push(snapshot.params.id);
+                return sculptor.createDetached('div').setText('user ' + snapshot.params.id);
+            },
+            '*': () => sculptor.createDetached('div').setText('not found')
+        }, { parent: host });
+
+        assert.equal(host.html.textContent, 'home');
+        assert.equal(router.current.get().route, '/');
+
+        router.navigate('/users/42');
+        sculptor.flush();
+        assert.equal(host.html.textContent, 'user 42');
+        assert.deepEqual(seen, ['42']);
+        assert.deepEqual(router.current.get().params, { id: '42' });
+        assert.equal(host.html.childNodes.length, 1);
+
+        router.navigate('/nothing-here');
+        sculptor.flush();
+        assert.equal(host.html.textContent, 'not found');
+        assert.equal(router.current.get().route, '*');
+
+        // Browser navigation is honoured through popstate.
+        back('/users/7');
+        sculptor.flush();
+        assert.equal(host.html.textContent, 'user 7');
+
+        router.stop();
+        sculptor.dispose();
+    });
+});
+
+test('the router disposes the view it replaces and cleans up when stopped', () => {
+    withFakeHistory('/', ({ listenerCount }) => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let disposals = [];
+
+        let makeView = name => () => {
+            let element = sculptor.createDetached('div').setText(name);
+            element.onDispose(() => disposals.push(name));
+            return element;
+        };
+        let router = sculptor.router({
+            '/': makeView('home'),
+            '/about': makeView('about')
+        }, { parent: host });
+        assert.equal(listenerCount('popstate'), 1);
+
+        router.navigate('/about');
+        sculptor.flush();
+        assert.deepEqual(disposals, ['home']);
+
+        router.stop();
+        assert.deepEqual(disposals, ['home', 'about']);
+        assert.equal(host.html.childNodes.length, 0);
+        assert.equal(listenerCount('popstate'), 0);
+        assert.equal(router.stopped, true);
+        assert.equal(router.current.disposed, true);
+
+        router.stop();
+        assert.deepEqual(disposals, ['home', 'about']);
+        sculptor.dispose();
+    });
+});
+
+test('the router mounts component instances and is owned by the runtime', () => {
+    withFakeHistory('/', ({ listenerCount }) => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let scoped;
+        let Page = sculptor.component(props => {
+            scoped = sculptor.signal(props.params.slug);
+            return { root: sculptor.createDetached('article').setText(props.params.slug) };
+        });
+
+        let router = sculptor.router({ '/posts/:slug': Page }, { parent: host });
+        router.navigate('/posts/hello');
+        sculptor.flush();
+        assert.equal(host.html.textContent, 'hello');
+        assert.equal(scoped.get(), 'hello');
+
+        // Disposing the runtime stops the router without an explicit stop() call.
+        sculptor.dispose();
+        assert.equal(router.stopped, true);
+        assert.equal(listenerCount('popstate'), 0);
+        assert.equal(scoped.disposed, true);
+    });
+});
+
+test('the router validates routes and navigation targets', () => {
+    withFakeHistory('/', () => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+
+        assert.throws(() => sculptor.router(null, { parent: host }), TypeError);
+        assert.throws(() => sculptor.router({ '/': 'not a function' }, { parent: host }), TypeError);
+
+        let router = sculptor.router({ '/': () => sculptor.createDetached('div') }, { parent: host });
+        assert.throws(() => router.navigate(''), TypeError);
+        assert.throws(() => router.navigate(42), TypeError);
+
+        router.stop();
+        sculptor.dispose();
+    });
+});
+
+test('the router supports hash routing', () => {
+    withFakeHistory('/', () => {
+        globalThis.location.hash = '#/start';
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let router = sculptor.router({
+            '/start': () => sculptor.createDetached('div').setText('start'),
+            '/next': () => sculptor.createDetached('div').setText('next')
+        }, { parent: host, hash: true });
+
+        assert.equal(host.html.textContent, 'start');
+        router.navigate('/next');
+        sculptor.flush();
+        assert.equal(host.html.textContent, 'next');
+
+        router.stop();
+        sculptor.dispose();
+    });
+});
+
+// Virtual lists read layout, which FakeNode does not model, so viewports are set explicitly.
+let virtualContainer = (sculptor, height = 480) => {
+    let container = sculptor.create('div');
+    container.html.clientHeight = height;
+    container.html.scrollTop = 0;
+    return container;
+};
+let records = count => Array.from({ length: count }, (_, id) => ({ id, label: `Row ${id}` }));
+
+test('virtual lists mount only the visible range of a large collection', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor);
+    let items = records(9_000);
+    let created = 0;
+
+    sculptor.virtualList(items, container, {
+        rowHeight: 48,
+        overscan: 6,
+        key: item => item.id,
+        render(item) {
+            created++;
+            return sculptor.createDetached('div').setText(item.label);
+        }
+    });
+
+    let status = sculptor.virtualListStatus(container);
+    assert.equal(status.total, 9_000);
+    assert.equal(status.start, 0);
+    // 480px viewport at 48px rows is 10 visible, plus overscan on the trailing edge.
+    assert.ok(status.mounted <= 60, `mounted ${status.mounted} rows`);
+    assert.ok(status.mounted >= 10, `mounted ${status.mounted} rows`);
+    assert.equal(created, status.mounted);
+
+    let spacer = container.html.childNodes[0];
+    assert.equal(spacer.style.height, `${9_000 * 48}px`);
+    assert.equal(Object.isFrozen(status), true);
+
+    sculptor.dispose();
+});
+
+test('virtual list ranges follow scrolling and clamp overscan at both boundaries', async () => {
+    await withManualAnimationFrames(async frames => {
+        let sculptor = new DomSculptor();
+        let container = virtualContainer(sculptor);
+        sculptor.virtualList(records(1_000), container, {
+            rowHeight: 20,
+            overscan: 3,
+            key: item => item.id,
+            render: item => sculptor.createDetached('div').setText(item.label)
+        });
+
+        assert.equal(sculptor.virtualListStatus(container).start, 0);
+
+        container.html.scrollTop = 4_000;
+        container.html.dispatchEvent(new Event('scroll'));
+        container.html.dispatchEvent(new Event('scroll'));
+        container.html.dispatchEvent(new Event('scroll'));
+        // Several scroll events before the frame collapse into one rendering pass.
+        assert.equal(frames.pending(), 1);
+        assert.equal(sculptor.rendering, true);
+        await frames.runNext();
+
+        let scrolled = sculptor.virtualListStatus(container);
+        assert.equal(scrolled.start, 200 - 3);
+        assert.equal(sculptor.rendering, false);
+
+        container.html.scrollTop = 20_000;
+        container.html.dispatchEvent(new Event('scroll'));
+        await frames.runNext();
+        let last = sculptor.virtualListStatus(container);
+        assert.equal(last.end, 1_000);
+        assert.ok(last.start >= 0);
+
+        sculptor.dispose();
+    });
+});
+
+test('virtual rows are reused through the update contract and see current data', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor, 100);
+    let constructions = 0;
+    let clicked = [];
+
+    sculptor.virtualList(records(500), container, {
+        rowHeight: 20,
+        overscan: 1,
+        key: item => item.id,
+        render(item) {
+            constructions++;
+            let current = item;
+            let root = sculptor.createDetached('button');
+            root.on('click', () => clicked.push(current.id));
+            root.setText(item.label);
+            return {
+                root,
+                update(nextItem) {
+                    current = nextItem;
+                    root.setText(nextItem.label);
+                }
+            };
+        }
+    });
+
+    let afterCreate = constructions;
+    sculptor.updateVirtualList(container, records(500).map(item => ({ ...item, label: `Changed ${item.id}` })));
+    assert.equal(constructions, afterCreate, 'rows were rebuilt instead of reused');
+    assert.match(container.html.textContent, /Changed 0/);
+
+    // A reused row must act on its current item, not the one it was built with.
+    container.html.querySelector('button').dispatchEvent(new Event('click'));
+    assert.deepEqual(clicked, [0]);
+
+    sculptor.dispose();
+});
+
+test('virtual lists reject duplicate keys before touching the DOM', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor);
+    let duplicated = [{ id: 1 }, { id: 1 }];
+
+    assert.throws(
+        () => sculptor.virtualList(duplicated, container, {
+            rowHeight: 10,
+            key: item => item.id,
+            render: () => sculptor.createDetached('div')
+        }),
+        /duplicate key/
+    );
+    assert.equal(container.html.childNodes.length, 0);
+    assert.equal(sculptor.virtualListStatus(container), null);
+
+    sculptor.virtualList(records(10), container, {
+        rowHeight: 10,
+        key: item => item.id,
+        render: () => sculptor.createDetached('div')
+    });
+    let before = sculptor.virtualListStatus(container).total;
+    assert.throws(() => sculptor.updateVirtualList(container, duplicated), /duplicate key/);
+    assert.equal(sculptor.virtualListStatus(container).total, before, 'a rejected update changed the list');
+
+    sculptor.dispose();
+});
+
+test('virtual list updates resize the spacer and clamp a stale scroll position', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor, 200);
+    sculptor.virtualList(records(1_000), container, {
+        rowHeight: 25,
+        key: item => item.id,
+        render: item => sculptor.createDetached('div').setText(item.label)
+    });
+    container.html.scrollTop = 20_000;
+
+    sculptor.updateVirtualList(container, records(10));
+    let spacer = container.html.childNodes[0];
+    assert.equal(spacer.style.height, `${10 * 25}px`);
+    assert.equal(container.html.scrollTop, Math.max(0, 10 * 25 - 200));
+    assert.equal(sculptor.virtualListStatus(container).total, 10);
+
+    sculptor.updateVirtualList(container, []);
+    assert.equal(sculptor.virtualListStatus(container).mounted, 0);
+    assert.equal(sculptor.virtualListStatus(container).total, 0);
+
+    sculptor.dispose();
+});
+
+test('virtual lists scroll to an index or a key and report unreachable targets', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor, 200);
+    sculptor.virtualList(records(1_000), container, {
+        rowHeight: 20,
+        key: item => item.id,
+        render: item => sculptor.createDetached('div').setText(item.label)
+    });
+
+    assert.equal(sculptor.scrollVirtualList(container, 500), true);
+    assert.equal(container.html.scrollTop, 500 * 20);
+
+    assert.equal(sculptor.scrollVirtualList(container, 500, { align: 'end' }), true);
+    assert.equal(container.html.scrollTop, 500 * 20 - 200 + 20);
+
+    assert.equal(sculptor.scrollVirtualList(container, 500, { align: 'center' }), true);
+    assert.equal(container.html.scrollTop, 500 * 20 - 100 + 10);
+
+    assert.equal(sculptor.scrollVirtualList(container, 999), true);
+    assert.equal(container.html.scrollTop, Math.min(999 * 20, 1_000 * 20 - 200));
+
+    assert.equal(sculptor.scrollVirtualList(container, { key: 3 }), true);
+    assert.equal(container.html.scrollTop, 3 * 20);
+
+    assert.equal(sculptor.scrollVirtualList(container, { key: 'missing' }), false);
+    assert.equal(sculptor.scrollVirtualList(container, -1), false);
+    assert.equal(sculptor.scrollVirtualList(container, 5_000), false);
+    assert.equal(sculptor.scrollVirtualList(sculptor.create('div'), 0), false);
+
+    sculptor.dispose();
+});
+
+test('virtual lists validate their arguments and stay one per container', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor);
+    let render = () => sculptor.createDetached('div');
+
+    assert.throws(() => sculptor.virtualList('nope', container, { rowHeight: 10, render }), TypeError);
+    assert.throws(() => sculptor.virtualList([], container.html, { rowHeight: 10, render }), TypeError);
+    assert.throws(() => sculptor.virtualList([], container, { rowHeight: 0, render }), TypeError);
+    assert.throws(() => sculptor.virtualList([], container, { rowHeight: 10 }), TypeError);
+
+    sculptor.virtualList(records(5), container, { rowHeight: 10, render });
+    assert.throws(() => sculptor.virtualList(records(5), container, { rowHeight: 10, render }), /already virtualized/);
+    assert.throws(() => sculptor.updateVirtualList(sculptor.create('div'), []), /not virtualized/);
+
+    sculptor.dispose();
+});
+
+test('virtual lists dispose with their container and can be removed on their own', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor);
+    let disposedRows = 0;
+    let options = {
+        rowHeight: 24,
+        key: item => item.id,
+        render(item) {
+            return {
+                root: sculptor.createDetached('div').setText(item.label),
+                dispose() { disposedRows++; }
+            };
+        }
+    };
+
+    sculptor.virtualList(records(100), container, options);
+    let mounted = sculptor.virtualListStatus(container).mounted;
+    assert.ok(mounted > 0);
+
+    // Explicit removal keeps the container usable.
+    sculptor.disposeVirtualList(container);
+    assert.equal(disposedRows, mounted);
+    assert.equal(sculptor.virtualListStatus(container), null);
+    assert.notEqual(container.html, null);
+    assert.equal(container.html.childNodes.length, 0);
+    sculptor.disposeVirtualList(container);
+    assert.equal(disposedRows, mounted);
+
+    // The container can be virtualized again after explicit removal.
+    sculptor.virtualList(records(100), container, options);
+    assert.ok(sculptor.virtualListStatus(container).mounted > 0);
+    container.dispose();
+    assert.equal(container.html, null);
+    assert.equal(disposedRows, mounted * 2);
+
+    sculptor.dispose();
+});
+
+test('virtual lists stay isolated across containers and runtimes', () => {
+    let first = new DomSculptor();
+    let second = new DomSculptor();
+    let firstContainer = virtualContainer(first);
+    let secondContainer = virtualContainer(second);
+
+    first.virtualList(records(50), firstContainer, {
+        rowHeight: 10,
+        render: item => first.createDetached('div').setText(item.label)
+    });
+    second.virtualList(records(80), secondContainer, {
+        rowHeight: 10,
+        render: item => second.createDetached('div').setText(item.label)
+    });
+
+    assert.equal(first.virtualListStatus(firstContainer).total, 50);
+    assert.equal(second.virtualListStatus(secondContainer).total, 80);
+    // One runtime must not see or control another runtime's list.
+    assert.equal(first.virtualListStatus(secondContainer), null);
+    assert.throws(() => first.updateVirtualList(secondContainer, []), /not virtualized/);
+
+    first.dispose();
+    assert.equal(second.virtualListStatus(secondContainer).total, 80);
+    second.dispose();
+});
+
+test('a failing row render restores rendering status and leaves the list usable', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor, 100);
+    let failing = false;
+
+    sculptor.virtualList(records(50), container, {
+        rowHeight: 20,
+        key: item => item.id,
+        render(item) {
+            if (failing) throw new Error('row render failed');
+            return sculptor.createDetached('div').setText(item.label);
+        }
+    });
+    let before = sculptor.virtualListStatus(container).mounted;
+
+    // New keys force fresh rows, so the failing render runs during the update.
+    let replacement = records(60).map(item => ({ ...item, id: item.id + 1_000 }));
+    failing = true;
+    assert.throws(() => sculptor.updateVirtualList(container, replacement), /row render failed/);
+    assert.equal(sculptor.rendering, false);
+    // The rows that were valid before the failed pass are still mounted.
+    assert.equal(sculptor.virtualListStatus(container).mounted, before);
+
+    // A later update can still recover.
+    failing = false;
+    sculptor.updateVirtualList(container, replacement);
+    assert.equal(sculptor.virtualListStatus(container).total, 60);
+    assert.ok(sculptor.virtualListStatus(container).mounted >= before - 1);
+
+    sculptor.dispose();
+});
+
+test('virtual rows carry position metadata unless it is disabled', () => {
+    let sculptor = new DomSculptor();
+    let container = virtualContainer(sculptor, 100);
+    sculptor.virtualList(records(300), container, {
+        rowHeight: 20,
+        key: item => item.id,
+        render: item => sculptor.createDetached('div').setText(item.label)
+    });
+
+    assert.equal(container.attribute.get('role'), 'list');
+    let firstRow = container.html.childNodes[0].childNodes[0].childNodes[0];
+    assert.equal(firstRow.getAttribute('role'), 'listitem');
+    assert.equal(firstRow.getAttribute('aria-posinset'), '1');
+    assert.equal(firstRow.getAttribute('aria-setsize'), '300');
+
+    let plain = virtualContainer(sculptor, 100);
+    sculptor.virtualList(records(10), plain, {
+        rowHeight: 20,
+        aria: false,
+        render: item => sculptor.createDetached('div').setText(item.label)
+    });
+    assert.equal(plain.attribute.has('role'), false);
+    assert.equal(plain.html.childNodes[0].childNodes[0].childNodes[0].hasAttribute('aria-posinset'), false);
+
+    sculptor.dispose();
+});
+
+test('every member declared in the published types exists at runtime', async () => {
+    let declarations = await readFile(new URL('../types/index.d.ts', import.meta.url), 'utf8');
+    // Scan declaration blocks by line so nothing depends on escaped regex nesting.
+    let lines = declarations.split(/\r?\n/);
+    let membersOf = name => {
+        let opener = lines.findIndex(line =>
+            /^export (?:default )?(?:interface|class) /.test(line) &&
+            line.replace(/^export (?:default )?(?:interface|class) /, '').split(/[<\s{]/)[0] === name);
+        assert.notEqual(opener, -1, `no declaration found for ${name}`);
+        let members = new Set();
+        for (let index = opener + 1; index < lines.length && lines[index] !== '}'; index++) {
+            // Members sit at one indent level; overloads repeat a name.
+            let found = /^ {4}(?:readonly )?([A-Za-z_$][\w$]*)\??[(:<]/.exec(lines[index]);
+            if (found) members.add(found[1]);
+        }
+        return [...members];
+    };
+
+    let sculptor = new DomSculptor();
+    let element = sculptor.create('div');
+    let component = sculptor.component(() => sculptor.createDetached('div'))();
+    let virtualHost = sculptor.create('div');
+    virtualHost.html.clientHeight = 100;
+    sculptor.virtualList([{ id: 1 }], virtualHost, {
+        rowHeight: 10,
+        render: () => sculptor.createDetached('div')
+    });
+
+    let targets = {
+        DomSculptor: sculptor,
+        DomElement: element,
+        DomAttributes: element.attribute,
+        DomClasses: element.class,
+        DomChildren: element.child,
+        DisposalScope: sculptor.createScope(),
+        Context: sculptor.createContext(),
+        ComponentInstance: component,
+        State: sculptor.signal(0),
+        Computed: sculptor.computed(() => 1),
+        AsyncState: sculptor.asyncState(),
+        DataStore: sculptor.store({}),
+        VirtualListStatus: sculptor.virtualListStatus(virtualHost),
+        DevDomSculptor: createDevSculptor()
+    };
+
+    let missing = [];
+    for (let [name, target] of Object.entries(targets)) {
+        assert.ok(target, `no runtime value for ${name}`);
+        for (let member of membersOf(name)) {
+            if (!(member in target)) missing.push(`${name}.${member}`);
+        }
+    }
+
+    // The router needs the History API, which the fake document does not provide.
+    withFakeHistory('/', () => {
+        let routerSculptor = new DomSculptor();
+        let router = routerSculptor.router(
+            { '/': () => routerSculptor.createDetached('div') },
+            { parent: routerSculptor.create('main') }
+        );
+        for (let member of membersOf('Router')) {
+            if (!(member in router)) missing.push(`Router.${member}`);
+        }
+        routerSculptor.dispose();
+    });
+
+    assert.deepEqual(missing, [], `declared members missing from the runtime: ${missing.join(', ')}`);
+    sculptor.dispose();
 });

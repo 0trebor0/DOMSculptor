@@ -87,8 +87,8 @@ count.dispose();</code></pre>
         <article><h3><code>subscribe(callback, options?)</code></h3><p>Returns an unsubscribe function. Use <code>immediate: true</code> for initial delivery or pass an <code>AbortSignal</code> for automatic removal.</p></article>
         <article><h3>Bindings</h3><p><code>bindText</code>, <code>bindValue</code>, <code>bindAttribute</code>, <code>bindClass</code>, <code>bindStyle</code>, <code>bindVisible</code>, <code>bindHidden</code>, and <code>bindProperty</code>. Element disposal removes the binding.</p></article>
         <article><h3><code>bind(element, options?)</code> / <code>sync(...)</code></h3><p>Two-way native form binding for text, numbers, checkboxes, radio groups, and selects. Options provide <code>event</code>, <code>parse</code>, <code>format</code>, custom <code>get/set</code>, grouped values, and multiple selection.</p></article>
-        <article><h3><code>computed(compute, dependencies)</code></h3><p>Creates a cached read-only value. Dependencies schedule recomputation; unchanged results do not notify subscribers.</p></article>
-        <article><h3><code>effect(run, dependencies)</code></h3><p>Runs immediately, reruns after dependency changes, and invokes the previous returned cleanup before rerunning. The returned function stops the effect.</p></article>
+        <article><h3><code>computed(compute, dependencies?)</code></h3><p>Creates a cached read-only value. Omit the dependency list to track the signals the computation reads, including branches it stops reading; pass one to pin dependencies, or pass an empty list to evaluate once. Unchanged results do not notify subscribers.</p></article>
+        <article><h3><code>effect(run, dependencies?)</code></h3><p>Runs immediately, reruns after dependency changes, and invokes the previous returned cleanup before rerunning. Dependencies are tracked automatically unless a list is supplied. The returned function stops the effect.</p></article>
         <article><h3><code>batch(callback)</code> / <code>flush()</code></h3><p>Batch groups scheduled work. Values change immediately; DOM jobs are deduplicated. <code>flush</code> completes pending work synchronously and is useful in tests.</p></article>
         <article><h3><code>list(container, options)</code></h3><p>Keyed mode uses <code>key</code>, <code>render</code>, and optional <code>update</code>. Stable keys move existing nodes and preserve focus. Duplicate keys throw before changing the DOM.</p></article>
       </div>
@@ -98,6 +98,24 @@ count.dispose();</code></pre>
       <p class="eyebrow">Structured state</p>
       <h2>Stores</h2>
       <p><code>store(initial)</code> and <code>data(initial)</code> are aliases. Use <code>get(key?)</code>, <code>set(key, value)</code>, bulk <code>set(object)</code>, <code>update</code>, <code>has</code>, <code>delete</code>, and <code>signal(key)</code>. Observe one property with <code>onChange</code>, everything with <code>onAnyChange</code>, and release observers with the returned unsubscribe function, <code>offChange</code>, an abort signal, or <code>dispose</code>.</p>
+    </section>
+
+    <section id="virtual-lists">
+      <p class="eyebrow">Large collections</p>
+      <h2>Virtual lists</h2>
+      <p><code>virtualList(items, container, options)</code> keeps only the visible range and a configurable overscan in the DOM while a spacer represents the full collection height. Options are <code>rowHeight</code> (required), <code>render</code> (required), <code>overscan</code>, <code>key</code>, and <code>aria</code>. A <code>render</code> may return a <code>DomElement</code> or a reusable row <code>{ root, update?, dispose? }</code>; reused rows must read their item from <code>update()</code>. Companion methods are <code>updateVirtualList</code>, <code>scrollVirtualList</code> (by index or by key, aligned start, center, end, or nearest, returning <code>false</code> for unreachable targets), <code>virtualListStatus</code> (a frozen snapshot of rendering, start, end, mounted, and total), and <code>disposeVirtualList</code>. Scroll and resize collapse into one pass per animation frame, duplicate keys are rejected before any DOM change, and a failing render rolls back the rows it created.</p>
+    </section>
+
+    <section id="routing">
+      <p class="eyebrow">Navigation</p>
+      <h2>Routing</h2>
+      <p><code>router(routes, options?)</code> maps path patterns to view functions, mounts one match at a time, and disposes the previous view on every change. Patterns accept <code>:name</code> parameters and a <code>*</code> catch-all, and each view receives <code>{ path, route, params }</code>. A view may return a <code>DomElement</code> or a component instance. Use <code>navigate</code> and <code>replace</code> for programmatic navigation, bind to the readable <code>current</code> signal for derived state, and <code>stop()</code> to detach. Back and forward work through <code>popstate</code>; pass <code>{ hash: true }</code> to route on the URL fragment. The runtime owns the router, so <code>sculptor.dispose()</code> stops it.</p>
+    </section>
+
+    <section id="runtime-disposal">
+      <p class="eyebrow">Ownership</p>
+      <h2>Runtime disposal</h2>
+      <p><code>sculptor.dispose()</code> releases everything the runtime created that no explicit scope already owns: signals, computed values, effects, stores, async state, and elements. It is idempotent and reports through <code>sculptor.disposed</code>. Nodes created by the runtime are removed; nodes adopted through <code>wrap()</code> or <code>adopt()</code> remain in the document with only their listeners and bindings released. Disposing a resource directly releases its ownership entry, so repeated create/dispose cycles do not accumulate cleanups.</p>
     </section>
 
     <section id="components">

@@ -2,7 +2,20 @@
 
 ## Status
 
-Planned for future implementation. No virtualization runtime has been implemented yet.
+Implemented. Version one shipped in `src/index.js` as `virtualList()`,
+`updateVirtualList()`, `scrollVirtualList()`, `virtualListStatus()`, and
+`disposeVirtualList()`, with unit and browser coverage.
+
+Two items from the version-one scope below are **not** implemented yet:
+
+- **Focus behavior.** Focused rows are not retained outside the visible range
+  and focus is not restored across a keyed refresh. A row containing a focused
+  input can still be unmounted by scrolling.
+- **Demonstration page.** Not added.
+
+The gzip budget was raised from 12 KB to 13 KB for this feature after the
+implementation was reduced where practical. See the note under Performance
+targets.
 
 ## Objective
 
@@ -511,6 +524,15 @@ For 9,000 fixed-height records:
 
 The current 10 KB gzip budget is tight. Do not silently raise it to accept the
 feature. Reduce implementation size or explicitly reconsider scope first.
+
+**Outcome:** version one cost roughly 1,480 gzipped bytes and overran the
+then-current 12 KB budget by 102 bytes. The implementation was reduced first --
+sharing the scheduler callback instead of wrapping it, dropping a stored field
+and a single-use helper, and setting the unchanging `role` attribute once per
+row rather than on every pass -- which recovered part of it. The remaining 61
+bytes were not recoverable without removing behavior the version-one scope
+requires, so the budget was raised to 13 KB deliberately and recorded in
+`CHANGELOG.md` rather than raised silently.
 
 ## Test plan
 

@@ -11,6 +11,66 @@ uses [Semantic Versioning](https://semver.org/).
   element mounts immediately, later elements mount one per animation frame, and
   the `rendering` property reports whether queued work remains. Parented
   `create()` calls remain synchronous.
+- `has(key)`, `delete(key)`, and `signal(key)` on `store()` and `data()`. These
+  were already documented and typed but missing from the runtime, so calling
+  them threw a `TypeError`. Deleting a key notifies observers with `undefined`
+  and keeps that key's listeners attached, so they fire again if the key is set
+  later.
+
+- Automatic dependency tracking for `computed()` and `effect()`. Omitting the
+  dependency list now discovers the signals the computation reads, including
+  values read through a `store()`, and re-subscribes on every run so a branch
+  that stops reading a signal stops depending on it. Passing a list still pins
+  dependencies explicitly, and an empty list evaluates once.
+
+- Virtualized collections through `virtualList()`, `updateVirtualList()`,
+  `scrollVirtualList()`, `virtualListStatus()`, and `disposeVirtualList()`.
+  Fixed-height rows, configurable overscan, optional stable keys, reusable rows,
+  scroll-to-index and scroll-to-key with alignment, resize handling, and
+  automatic `role`/`aria-posinset`/`aria-setsize` metadata. Nine thousand records
+  mount roughly 20-60 rows instead of nine thousand nodes. Scroll and resize
+  collapse into one pass per animation frame, and `rendering` now reports
+  progressive creation and virtual work through a single status path.
+- `router(routes, options?)`. Maps path patterns to views, keeps one route
+  mounted, and disposes the previous view on every change. Patterns support
+  `:name` parameters and a `*` catch-all; views may return a `DomElement` or a
+  component instance and receive `{ path, route, params }`. Provides `navigate`,
+  `replace`, a readable `current` signal, and an idempotent `stop()`. Handles
+  browser back and forward through `popstate`, with `{ hash: true }` for
+  fragment routing. The runtime owns the router, so `sculptor.dispose()` stops
+  it and disposes the mounted view.
+- `sculptor.dispose()` and `sculptor.disposed`. Every runtime now owns whatever
+  is created outside an explicit scope, so signals, computed values, effects,
+  stores, async state, and elements always have a disposer. Nodes created by the
+  runtime are removed; nodes taken over with `wrap()` or `adopt()` stay in the
+  document and only have their listeners and bindings released. Disposing a
+  resource directly releases its ownership entry, so repeated create/dispose
+  cycles do not accumulate cleanup callbacks.
+
+### Changed
+
+- The gzip budget enforced by `npm run size` moved from 10 KB to 13 KB to make
+  room for automatic dependency tracking, runtime ownership, routing, and
+  virtualization. The build currently measures 12377 bytes.
+- `computed(fn)` and `effect(fn)` called without a dependency list previously
+  never re-ran; they now track their reads. Calls that pass a dependency list
+  are unaffected. Pass an empty list to keep the evaluate-once behavior.
+
+### Fixed
+
+- `npm run benchmark` now interleaves its cases and discards warm-up rounds.
+  Running each case's samples consecutively let JIT warm-up and garbage
+  collection move medians by several milliseconds between invocations, which
+  made unrelated changes look like regressions. Repeat runs now agree to about a
+  tenth of a millisecond.
+- `on()`, `once()`, `getValue()`, `setValue()`, `hide()`, and `show()` now
+  report use of a disposed element with the same error as the other element
+  methods instead of throwing a raw null-reference `TypeError`.
+- Corrected `types/index.d.ts`, which declared behavior the runtime does not
+  implement: an optional `transform` argument on `text()`, `attr()`,
+  `classToggle()`, and `styleValue()` (silently ignored at runtime), and a
+  `previous` argument for signal subscribers (never supplied). `DataStore`
+  observers are unaffected and still receive the previous value.
 
 ## 2.0.0
 

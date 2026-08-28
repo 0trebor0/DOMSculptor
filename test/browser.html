@@ -463,6 +463,205 @@ try {
     parent.child.clear();
     assert(parent.html.childNodes.length === 0 && parent.children.length === 0, 'child.clear left stale children');
 
+    let virtualSculptor = new DomSculptor();
+    let virtualRecords = Array.from({ length: 9000 }, (_, id) => ({ id, label: 'Row ' + id }));
+    let virtualHost = virtualSculptor.create('div').setStyle({
+        height: '600px',
+        overflow: 'auto',
+        position: 'relative'
+    });
+    virtualSculptor.mount(virtualHost, document.body);
+    let builtRows = 0;
+    virtualSculptor.virtualList(virtualRecords, virtualHost, {
+        rowHeight: 48,
+        overscan: 6,
+        key: item => item.id,
+        render(item) {
+            builtRows++;
+            let root = virtualSculptor.createDetached('div');
+            let label = root.child.create('span');
+            let current = item;
+            label.setText(item.label);
+            return {
+                root,
+                update(nextItem) {
+                    current = nextItem;
+                    label.setText(nextItem.label);
+                },
+                currentId: () => current.id
+            };
+        }
+    });
+    let nextFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    let initialStatus = virtualSculptor.virtualListStatus(virtualHost);
+    assert(initialStatus.total === 9000, 'virtual list did not record the full collection');
+    assert(initialStatus.mounted <= 60, `virtual list mounted ${initialStatus.mounted} rows`);
+    assert(builtRows === initialStatus.mounted, 'virtual list built rows outside the visible range');
+    assert(virtualHost.html.querySelectorAll('div > span').length === initialStatus.mounted,
+        'virtual list mounted a different number of nodes than it reported');
+    assert(virtualHost.html.scrollHeight >= 9000 * 48, 'virtual list spacer did not represent the collection');
+    assert(virtualHost.html.firstChild.style.height === (9000 * 48) + 'px', 'virtual spacer height was wrong');
+
+    virtualHost.html.scrollTop = 4000 * 48;
+    await nextFrame();
+    let scrolledStatus = virtualSculptor.virtualListStatus(virtualHost);
+    assert(scrolledStatus.start > 3900 && scrolledStatus.start <= 4000, 'virtual list range did not follow scrolling');
+    assert(scrolledStatus.mounted <= 60, 'virtual list grew past its overscan while scrolling');
+    assert(virtualHost.html.textContent.includes('Row 4000'), 'virtual list did not render the scrolled range');
+    assert(!virtualHost.html.textContent.includes('Row 0<'), 'virtual list kept an offscreen row mounted');
+
+    // Rapid scrolling must collapse into a single pass and land on the final position.
+    for (let step = 0; step < 10; step++) virtualHost.html.scrollTop = (5000 + step * 20) * 48;
+    await nextFrame();
+    assert(virtualSculptor.virtualListStatus(virtualHost).rendering === false, 'virtual list left work pending');
+    assert(virtualHost.html.textContent.includes('Row 5180'), 'virtual list did not settle on the final scroll position');
+
+    assert(virtualSculptor.scrollVirtualList(virtualHost, 8999, { align: 'end' }) === true,
+        'scrollVirtualList rejected a valid index');
+    await nextFrame();
+    assert(virtualHost.html.textContent.includes('Row 8999'), 'scroll-to-index did not reach the last row');
+    assert(virtualSculptor.virtualListStatus(virtualHost).end === 9000, 'virtual list overran the collection end');
+
+    assert(virtualSculptor.scrollVirtualList(virtualHost, { key: 12, align: 'start' }) === true,
+        'scroll-to-key rejected an existing key');
+    await nextFrame();
+    assert(virtualHost.html.textContent.includes('Row 12'), 'scroll-to-key did not reach the row');
+    assert(virtualSculptor.scrollVirtualList(virtualHost, { key: 'absent' }) === false,
+        'scroll-to-key accepted a missing key');
+
+    virtualSculptor.updateVirtualList(virtualHost, virtualRecords.slice(0, 20));
+    await nextFrame();
+    let shrunk = virtualSculptor.virtualListStatus(virtualHost);
+    assert(shrunk.total === 20, 'virtual list did not accept a smaller collection');
+    assert(virtualHost.html.scrollTop <= 20 * 48, 'virtual list left a stale scroll position');
+
+    virtualSculptor.disposeVirtualList(virtualHost);
+    assert(virtualSculptor.virtualListStatus(virtualHost) === null, 'virtual list survived explicit disposal');
+    assert(virtualHost.html.childNodes.length === 0, 'virtual list left nodes behind');
+    assert(virtualHost.html !== null, 'explicit virtual disposal removed the container');
+    virtualSculptor.dispose();
+
+    let routerSculptor = new DomSculptor();
+    let routerHost = routerSculptor.create('main');
+    routerSculptor.mount(routerHost, document.body);
+    let routerDisposals = [];
+    let startPath = location.pathname;
+    let appRouter = routerSculptor.router({
+        [startPath]: () => routerSculptor.createDetached('div').setText('start'),
+        '/posts/:slug': snapshot => {
+            let view = routerSculptor.createDetached('div').setText('post ' + snapshot.params.slug);
+            view.onDispose(() => routerDisposals.push(snapshot.params.slug));
+            return view;
+        },
+        '*': () => routerSculptor.createDetached('div').setText('missing')
+    }, { parent: routerHost });
+    assert(routerHost.html.textContent === 'start', 'router did not mount the initial route');
+    appRouter.navigate('/posts/hello');
+    routerSculptor.flush();
+    assert(routerHost.html.textContent === 'post hello', 'router did not mount a parameterised route');
+    assert(location.pathname === '/posts/hello', 'router did not push the new path');
+    assert(appRouter.current.get().params.slug === 'hello', 'router did not expose route parameters');
+    appRouter.navigate('/posts/second');
+    routerSculptor.flush();
+    assert(routerDisposals.join() === 'hello', 'router did not dispose the replaced view');
+    assert(routerHost.html.childNodes.length === 1, 'router left more than one view mounted');
+    await new Promise(resolve => {
+        let onPop = () => { window.removeEventListener('popstate', onPop); resolve(); };
+        window.addEventListener('popstate', onPop);
+        history.back();
+    });
+    routerSculptor.flush();
+    assert(routerHost.html.textContent === 'post hello', 'router did not follow browser history');
+    appRouter.navigate('/definitely-not-a-route');
+    routerSculptor.flush();
+    assert(appRouter.current.get().route === '*', 'router did not fall back to the catch-all route');
+    routerSculptor.dispose();
+    assert(appRouter.stopped === true, 'runtime disposal did not stop the router');
+    history.replaceState({}, '', startPath);
+
+    let ownershipSculptor = new DomSculptor();
+    let ownedHost = ownershipSculptor.create('div');
+    ownershipSculptor.mount(ownedHost, document.body);
+    let ownedSignal = ownershipSculptor.signal('owned');
+    let ownedComputed = ownershipSculptor.computed(() => ownedSignal.get().toUpperCase());
+    let adoptedNode = document.createElement('section');
+    document.body.appendChild(adoptedNode);
+    let adoptedClicks = 0;
+    ownershipSculptor.adopt(adoptedNode).on('click', () => adoptedClicks++);
+    adoptedNode.click();
+    assert(ownedComputed.get() === 'OWNED' && adoptedClicks === 1, 'runtime ownership fixture did not initialise');
+    ownershipSculptor.dispose();
+    assert(ownershipSculptor.disposed === true, 'sculptor did not report disposal');
+    assert(ownedSignal.disposed && ownedComputed.disposed, 'runtime disposal left reactive values alive');
+    assert(ownedHost.html === null, 'runtime disposal left a created element mounted');
+    adoptedNode.click();
+    assert(adoptedNode.parentNode === document.body, 'runtime disposal removed a node it did not create');
+    assert(adoptedClicks === 1, 'runtime disposal left a listener attached to an adopted node');
+    adoptedNode.remove();
+    ownershipSculptor.dispose();
+
+    let trackedSource = sculptor.signal(2);
+    let trackedBranch = sculptor.signal(true);
+    let trackedAlternative = sculptor.signal(100);
+    let trackedEvaluations = 0;
+    let trackedComputed = sculptor.computed(() => {
+        trackedEvaluations++;
+        return trackedBranch.get() ? trackedSource.get() * 2 : trackedAlternative.get();
+    });
+    assert(trackedComputed.get() === 4, 'automatic tracking did not compute an initial value');
+    trackedAlternative.set(200);
+    assert(trackedEvaluations === 1, 'an unread branch was tracked as a dependency');
+    trackedSource.set(5);
+    assert(trackedComputed.get() === 10 && trackedEvaluations === 2, 'automatic tracking did not recompute');
+    trackedBranch.set(false);
+    assert(trackedComputed.get() === 200, 'automatic tracking did not follow the new branch');
+    trackedSource.set(9);
+    assert(trackedComputed.get() === 200, 'an abandoned dependency still triggered recomputation');
+    let trackedEffectRuns = 0;
+    let stopTrackedEffect = sculptor.effect(() => {
+        trackedSource.get();
+        trackedEffectRuns++;
+    });
+    trackedSource.set(11);
+    sculptor.flush();
+    assert(trackedEffectRuns === 2, 'an automatically tracked effect did not rerun');
+    stopTrackedEffect();
+    trackedComputed.dispose();
+
+    let profile = sculptor.store({ name: 'Ada', role: 'engineer' });
+    assert(profile.has('name') && !profile.has('missing'), 'store.has did not report key membership');
+    let roleSignal = profile.signal('role');
+    let roleLabel = sculptor.create('p');
+    roleSignal.bindText(roleLabel);
+    profile.set('role', 'director');
+    sculptor.flush();
+    assert(roleLabel.html.textContent === 'director', 'store.signal did not share the live key signal');
+    let roleChanges = [];
+    profile.onChange('role', (next, previous) => roleChanges.push([next, previous]));
+    assert(profile.delete('role') === true, 'store.delete did not report a removed key');
+    assert(!profile.has('role') && profile.get('role') === undefined, 'store.delete left the key readable');
+    assert(profile.delete('role') === false, 'store.delete reported a second removal');
+    profile.set('role', 'architect');
+    assert(roleChanges.length === 2 && roleChanges[1][0] === 'architect', 'observers did not survive a deleted key returning');
+    roleLabel.dispose();
+    profile.dispose();
+
+    let disposedElement = sculptor.create('input');
+    disposedElement.dispose();
+    for (let [method, args] of [
+        ['on', ['click', () => {}]],
+        ['once', ['click', () => {}]],
+        ['getValue', []],
+        ['setValue', ['x']],
+        ['hide', []],
+        ['show', []]
+    ]) {
+        let reported = false;
+        try { disposedElement[method](...args); } catch (error) { reported = /disposed/.test(error.message); }
+        assert(reported, `${method} did not report use of a disposed element`);
+    }
+
     document.querySelector('#result').textContent = JSON.stringify({ ok: true, assertions });
 } catch (error) {
     document.querySelector('#result').textContent = JSON.stringify({ ok: false, message: error.message, stack: error.stack });

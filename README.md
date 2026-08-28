@@ -38,9 +38,11 @@ button.on('click', () => count.update(value => value + 1));
 sculptor.mount(button, '#app');
 
 // At page, route, or widget teardown:
-button.dispose();
-count.dispose();
+sculptor.dispose();
 ```
+
+Disposing the runtime releases everything it created. Individual `dispose()`
+calls remain available when a resource should go away sooner.
 
 `create()` is detached, `mount()` inserts it, and `dispose()` permanently removes
 its DOM, listeners, bindings, and owned descendants.
@@ -116,7 +118,7 @@ Save this as an HTML file and open it in a browser:
 - [Create and mount elements](#creating-elements)
 - [Wrap existing markup](#wrapping-existing-elements)
 - [Set content](#content), [attributes](#attributes), [classes](#classes), and [styles](#styles)
-- [Manage children](#children), [render large collections](#incremental-rendering), and [traverse DOM](#dom-traversal)
+- [Manage children](#children), [render large collections](#incremental-rendering), [virtualize thousands of rows](#virtual-lists), and [traverse DOM](#dom-traversal)
 - [Understand mounting and cleanup](#lifecycle-hooks)
 
 ### Reactive UI
@@ -124,7 +126,7 @@ Save this as an HTML file and open it in a browser:
 - [Signals, computed values, effects, forms, and lists](#reactive-state)
 - [Async loading and cancellation](#async-state)
 - [Reactive object stores](#reactive-data)
-- [Declarative trees](#tree-creation) and [conditional UI](#conditional-rendering)
+- [Declarative trees](#tree-creation), [conditional UI](#conditional-rendering), and [routing](#routing)
 - [Components, contexts, and disposal scopes](#components-and-disposal-scopes)
 
 Continue with the [practical recipes](docs/recipes.html), use the
@@ -353,31 +355,50 @@ count.dispose();
 
 ### Computed values
 
-Computed values use an explicit dependency list and skip notifications when the
+Computed values discover the signals they read and skip notifications when the
 derived result is unchanged:
 
 ```js
 let firstName = sculptor.signal('Ada');
 let lastName = sculptor.signal('Lovelace');
-let fullName = sculptor.computed(
-    () => `${firstName.get()} ${lastName.get()}`,
-    [firstName, lastName]
-);
+let fullName = sculptor.computed(() => `${firstName.get()} ${lastName.get()}`);
 
 fullName.get();
 fullName.dispose();
 ```
 
+Tracking is per evaluation, so a branch that stops reading a signal stops
+depending on it:
+
+```js
+let nickname = sculptor.signal('Ada L.');
+let useNickname = sculptor.signal(false);
+let displayName = sculptor.computed(
+    () => useNickname.get() ? nickname.get() : fullName.get()
+);
+```
+
+While `useNickname` is `false`, writes to `nickname` do not recompute anything.
+
+Pass an explicit list to pin dependencies instead. An empty list never
+recomputes, which is useful for a value that should be evaluated once:
+
+```js
+let pinned = sculptor.computed(() => expensiveRead(), []);
+let watched = sculptor.computed(() => summarise(), [firstName, lastName]);
+```
+
 ### Effects and batching
 
-Effects run once immediately, then once per queued rendering pass. A returned
-cleanup function runs before the next execution and when the effect is stopped.
+Effects run once immediately, then once per queued rendering pass. They track
+the signals they read, exactly like computed values, and a returned cleanup
+function runs before the next execution and when the effect is stopped.
 
 ```js
 let stop = sculptor.effect(() => {
     document.title = fullName.get();
     return () => console.log('effect cleanup');
-}, [fullName]);
+});
 
 sculptor.batch(() => {
     firstName.set('Grace');
@@ -627,6 +648,36 @@ let data = sculptor.data({
 data.update('count', value => value + 1);
 ```
 
+### `has(key)`, `delete(key)`, and `signal(key)` — inspect and reshape a store
+
+```js
+data.has('color');      // true while the key is part of the store
+data.delete('color');   // true when a key was removed, false when it was absent
+data.signal('color');   // the live signal backing one key
+```
+
+`delete()` notifies observers with `undefined` before the key leaves the store,
+and `get()` no longer reports it. Listeners registered for that key stay
+attached, so they fire again if the key is later set:
+
+```js
+data.onChange('color', next => console.log('color is', next));
+
+data.delete('color');      // logs: color is undefined
+data.set('color', 'teal'); // logs: color is teal
+```
+
+`signal(key)` returns the same signal the store uses internally, so it supports
+every binding method and writes back into the store:
+
+```js
+let color = data.signal('color');
+
+color.bindText(label);
+color.set('amber');
+data.get('color'); // 'amber'
+```
+
 ### `onChange(key, callback, options?)` — watch one value
 
 Runs `callback(next, previous, key)` when a specific key changes.
@@ -751,6 +802,115 @@ let stop = sculptor.when(isOpen, panel, {
 stop(); // unsubscribe and dispose managed branches
 ```
 
+## Virtual lists
+
+`virtualList()` renders thousands of fixed-height records while keeping only the
+visible rows and a small overscan buffer in the DOM. A spacer of the full
+collection height keeps the scrollbar representing every record.
+
+```js
+let list = sculptor.create('div', '#app')
+    .setStyle({ height: '600px', overflow: 'auto' });
+
+sculptor.virtualList(items, list, {
+    rowHeight: 48,
+    overscan: 6,
+    key: item => item.id,
+    render: item => sculptor.create('div').setText(item.name)
+});
+```
+
+For 9,000 records this mounts roughly 20-60 rows instead of 9,000 nodes.
+
+```js
+sculptor.updateVirtualList(list, nextItems);
+sculptor.scrollVirtualList(list, 5000, { align: 'center' });
+sculptor.scrollVirtualList(list, { key: 'user-5000', align: 'nearest' });
+sculptor.virtualListStatus(list);  // { rendering, start, end, mounted, total }
+sculptor.disposeVirtualList(list); // remove virtualization, keep the container
+```
+
+Scrolling is coalesced into one rendering pass per animation frame, and
+`sculptor.rendering` reports queued virtual work alongside progressive creation.
+Alignments are `start`, `center`, `end`, and `nearest`; scrolling to a missing
+index or key returns `false`.
+
+### Reusable rows
+
+Returning a row object lets DOMSculptor reuse a node as it scrolls. A reused row
+must read its current item from `update()` rather than closing over the item it
+was built with:
+
+```js
+render(item) {
+    let current = item;
+    let root = sculptor.create('button');
+
+    root.on('click', () => open(current.id));
+
+    return {
+        root,
+        update(nextItem) {
+            current = nextItem;
+            root.setText(nextItem.name);
+        },
+        dispose() {
+            // optional cleanup DOMSculptor does not own
+        }
+    };
+}
+```
+
+Keys are optional but recommended: they give stable identity, predictable reuse,
+duplicate detection, and `scrollVirtualList()` by key. Duplicate keys are
+rejected before any DOM changes, and a failing `render()` rolls back the rows it
+created so the previous rows stay mounted.
+
+Rows carry `role="listitem"`, `aria-posinset`, and `aria-setsize` so assistive
+technology sees the logical collection; pass `aria: false` to opt out. Disposing
+the container disposes the list, and both disposal paths are idempotent.
+
+Focused rows are not yet retained outside the visible range, so scrolling can
+unmount a row containing a focused input.
+
+## Routing
+
+`router()` maps paths to views, keeps one route mounted at a time, and disposes
+the previous view on every change. Patterns support `:name` parameters and a
+`*` catch-all.
+
+```js
+let router = sculptor.router({
+    '/': () => sculptor.tree({ tag: 'h1', text: 'Home' }),
+    '/posts/:slug': ({ params }) => PostPage({ slug: params.slug }),
+    '*': () => sculptor.tree({ tag: 'p', text: 'Not found' })
+}, { parent: '#app' });
+
+router.navigate('/posts/hello');   // pushState
+router.replace('/');               // replaceState
+router.current.get();              // { path, route, params }
+router.stop();
+```
+
+A route view is any function returning a `DomElement` or a component instance,
+so `sculptor.component()` factories can be used directly. The matched snapshot
+is passed in, making `params` available as component props.
+
+`current` is a readable signal, so page titles and navigation state can bind to
+it like any other value:
+
+```js
+sculptor.effect(() => {
+    document.title = router.current.get().route === '/' ? 'Home' : 'DOMSculptor';
+});
+```
+
+Browser back and forward are handled through `popstate`. Pass `{ hash: true }`
+to route on `location.hash` instead, which suits static hosting and extensions
+where the server cannot rewrite paths. The router is owned by the runtime, so
+`sculptor.dispose()` stops it and disposes the mounted view; `stop()` does the
+same on its own and is idempotent.
+
 ## Components and disposal scopes
 
 A component is a factory running inside a disposal scope. It has no hidden
@@ -786,6 +946,28 @@ let counter = Counter({ initial: 2 });
 sculptor.mount(counter, '#app');
 counter.dispose();
 ```
+
+Every sculptor also owns whatever is created outside an explicit scope, so
+nothing is left without a disposer:
+
+```js
+let sculptor = new DomSculptor();
+let count = sculptor.signal(0);
+let label = sculptor.create('p');
+
+count.bindText(label);
+sculptor.mount(label, '#app');
+
+sculptor.dispose();   // disposes the signal, the binding, and the element
+sculptor.disposed;    // true
+```
+
+`dispose()` is idempotent. Nodes the runtime created are removed, while nodes
+adopted with `wrap()` or `adopt()` stay in the document and only have their
+listeners and bindings released — the runtime never deletes markup it did not
+create. Disposing a resource yourself releases its ownership entry, so
+long-running code that creates and disposes many signals or elements does not
+accumulate cleanup callbacks.
 
 Scopes are also available directly. Cleanups run once in reverse registration
 order, and every cleanup is attempted even when another throws.
@@ -889,7 +1071,7 @@ sculptor.reportLeaks();
 
 Run `npm run benchmark` after `npm run build` for raw Chromium medians,
 variance, forced-GC memory data, runtime versions, and compressed bundle sizes.
-`npm run size` enforces a 10 KB gzip budget for the full builds.
+`npm run size` enforces a 13 KB gzip budget for the full builds.
 
 ## Compatibility
 

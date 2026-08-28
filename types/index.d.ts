@@ -23,7 +23,7 @@ export interface SubscriptionOptions {
 
 export interface Readable<T> {
     get(): T;
-    subscribe(callback: (value: T, previous?: T) => void, options?: SubscriptionOptions): Unsubscribe;
+    subscribe(callback: (value: T) => void, options?: SubscriptionOptions): Unsubscribe;
 }
 
 export interface DisposalScope {
@@ -104,10 +104,10 @@ export class DomElement<T extends Node = HTMLElement> {
     child: DomChildren;
 
     setText(text: unknown): this;
-    text<V>(readable: Readable<V>, transform?: (value: V) => unknown): this;
-    attr<V>(name: string, readable: Readable<V>, transform?: (value: V) => unknown): this;
-    classToggle<V>(name: string, readable: Readable<V>, transform?: (value: V) => boolean): this;
-    styleValue<V>(name: string, readable: Readable<V>, transform?: (value: V) => unknown): this;
+    text<V>(readable: Readable<V>): this;
+    attr<V>(name: string, readable: Readable<V>): this;
+    classToggle<V>(name: string, readable: Readable<V>): this;
+    styleValue<V>(name: string, readable: Readable<V>): this;
     getValue(): unknown;
     setValue(value: unknown): this;
     setStyle(property: string | Record<string, unknown>, value?: unknown): this;
@@ -225,6 +225,53 @@ export interface DataStore<T extends Record<string, unknown>> {
     readonly disposed: boolean;
 }
 
+export interface VirtualRow {
+    root: DomElement;
+    update?(item: unknown, index: number): void;
+    dispose?(): void;
+}
+
+export interface VirtualListOptions<T> {
+    rowHeight: number;
+    render(item: T, index: number): DomElement | VirtualRow;
+    overscan?: number;
+    key?(item: T, index: number): unknown;
+    aria?: boolean;
+}
+
+export interface VirtualListStatus {
+    readonly rendering: boolean;
+    readonly start: number;
+    readonly end: number;
+    readonly mounted: number;
+    readonly total: number;
+}
+
+export interface VirtualScrollOptions {
+    align?: 'start' | 'center' | 'end' | 'nearest';
+}
+
+export interface RouteSnapshot {
+    path: string;
+    route: string | null;
+    params: Record<string, string>;
+}
+
+export interface RouterOptions {
+    parent?: string | Node | DomElement;
+    hash?: boolean;
+}
+
+export interface Router {
+    current: Readable<RouteSnapshot>;
+    navigate(path: string): void;
+    replace(path: string): void;
+    stop(): void;
+    readonly stopped: boolean;
+}
+
+export type RouteView = (snapshot: RouteSnapshot) => DomElement | ComponentInstance<never> | ComponentInstance<any>;
+
 export type TreeChild = string | Node | DomElement | TreeConfig | readonly TreeChild[];
 export interface TreeConfig<K extends string = string> {
     tag: K;
@@ -266,6 +313,13 @@ export default class DomSculptor {
     wrap(selectorOrNode: string | Node): DomElement;
     tryWrap(selectorOrNode: string | Node): DomElement | null;
     tree<K extends string>(config: TreeConfig<K>): DomElement<ElementForTag<K>>;
+    router(routes: Record<string, RouteView>, options?: RouterOptions): Router;
+    virtualList<T>(items: readonly T[], container: DomElement, options: VirtualListOptions<T>): DomElement;
+    updateVirtualList<T>(container: DomElement, items: readonly T[]): DomElement;
+    scrollVirtualList(container: DomElement, index: number, options?: VirtualScrollOptions): boolean;
+    scrollVirtualList(container: DomElement, target: VirtualScrollOptions & { key: unknown }): boolean;
+    virtualListStatus(container: DomElement): VirtualListStatus | null;
+    disposeVirtualList(container: DomElement): DomElement;
     when(condition: Readable<unknown>, branch: DomChild | (() => DomChild), options?: {
         fallback?: DomChild | (() => DomChild);
         preserve?: boolean;
@@ -283,6 +337,8 @@ export default class DomSculptor {
     data(): DataStore<Record<string, unknown>>;
     store<T extends Record<string, unknown>>(initial: T): DataStore<T>;
     store(): DataStore<Record<string, unknown>>;
+    dispose(): void;
+    readonly disposed: boolean;
 }
 
 export function signal<T>(initial: T): State<T>;

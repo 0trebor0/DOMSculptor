@@ -6,11 +6,44 @@ let throwCollectedErrors = (errors, message) => {
     throw errors[0];
 };
 
+// Auto-tracking records the signals a computation reads so no dependency list is needed.
+let activeTracker = null;
+let createTrackedRun = onDependencyChange => {
+    let subscriptions = new Map();
+    return {
+        run(compute) {
+            let seen = new Set();
+            let previousTracker = activeTracker;
+            activeTracker = readable => seen.add(readable);
+            let value;
+            try { value = compute(); }
+            finally { activeTracker = previousTracker; }
+            subscriptions.forEach((unsubscribe, readable) => {
+                // A branch that stopped reading a signal must stop depending on it.
+                if (seen.has(readable)) return;
+                unsubscribe();
+                subscriptions.delete(readable);
+            });
+            seen.forEach(readable => {
+                if (!subscriptions.has(readable)) {
+                    subscriptions.set(readable, readable.subscribe(onDependencyChange));
+                }
+            });
+            return value;
+        },
+        stop() {
+            subscriptions.forEach(unsubscribe => unsubscribe());
+            subscriptions.clear();
+        }
+    };
+};
+
 // Scopes give components and tests one deterministic owner for disposable resources.
 class DisposalScope {
     constructor(sculptor) {
         this._sculptor = sculptor;
-        this._cleanups = [];
+        // A set lets a resource release its own entry when it is disposed individually.
+        this._cleanups = new Set();
         this._disposed = false;
     }
 
@@ -20,8 +53,12 @@ class DisposalScope {
             cleanup();
             return cleanup;
         }
-        this._cleanups.push(cleanup);
+        this._cleanups.add(cleanup);
         return cleanup;
+    }
+
+    _untrack(cleanup) {
+        this._cleanups.delete(cleanup);
     }
 
     run(callback) {
@@ -36,7 +73,8 @@ class DisposalScope {
     dispose() {
         if (this._disposed) return;
         this._disposed = true;
-        let cleanups = this._cleanups.splice(0).reverse();
+        let cleanups = Array.from(this._cleanups).reverse();
+        this._cleanups.clear();
         let errors = [];
         this._sculptor._disposalDepth++;
         try {
@@ -74,6 +112,7 @@ class DomElement {
         this._removeCallbacks = [];
         this._removing = false;
         this._displayBeforeHide = null;
+        this._untrackers = [];
         sculptor?._elements?.set(this.html, this);
         if (sculptor) DomSculptor._owners.set(this.html, this);
 
@@ -165,6 +204,12 @@ class DomElement {
         return Object.freeze(this._children.slice());
     }
 
+    _own(cleanup) {
+        // Scope cleanup for this element is released again when the element is disposed.
+        let untrack = this._sculptor?._track(cleanup);
+        if (untrack) this._untrackers.push(untrack);
+    }
+
     _assertLive(operation) {
         if (this.html) return;
         this._sculptor?._warn(
@@ -242,12 +287,20 @@ class DomElement {
             unsubscribe();
         };
         this.onRemove(cleanup);
-        this._sculptor._track(cleanup);
+        this._own(cleanup);
         return this;
     }
 
-    getValue() { return this.html.value; }
-    setValue(value) { this.html.value = value; return this; }
+    getValue() {
+        this._assertLive('getValue');
+        return this.html.value;
+    }
+
+    setValue(value) {
+        this._assertLive('setValue');
+        this.html.value = value;
+        return this;
+    }
 
     setStyle(property, value) {
         this._assertLive('setStyle');
@@ -264,11 +317,13 @@ class DomElement {
     }
 
     hide() {
+        this._assertLive('hide');
         if (this.html.style.display !== 'none') this._displayBeforeHide = this.html.style.display;
         this.html.style.display = 'none';
         return this;
     }
     show() {
+        this._assertLive('show');
         this.html.style.display = this._displayBeforeHide ?? '';
         this._displayBeforeHide = null;
         return this;
@@ -349,6 +404,7 @@ class DomElement {
     }
 
     on(event, callback, options = undefined, delegatedOptions = undefined) {
+        this._assertLive('on');
         if (typeof event === 'object' && event !== null) {
             for (let key in event) {
                 if (Object.hasOwnProperty.call(event, key) && typeof event[key] === 'function') {
@@ -378,14 +434,14 @@ class DomElement {
             if (delegatedOptions?.signal?.aborted) return this;
             this.html.addEventListener(event, wrapped, delegatedOptions);
             this._rememberListener(event, wrapped, delegatedOptions);
-            this._sculptor._track(() => {
+            this._own(() => {
                 if (this.html) this.off(event, handler);
             });
         } else if (typeof event === 'string' && typeof callback === 'function') {
             if (options?.signal?.aborted) return this;
             this.html.addEventListener(event, callback, options);
             this._rememberListener(event, callback, options);
-            this._sculptor._track(() => {
+            this._own(() => {
                 if (this.html) this.off(event, callback);
             });
         } else {
@@ -395,6 +451,7 @@ class DomElement {
     }
 
     once(event, callback, options = undefined) {
+        this._assertLive('once');
         if (typeof event === 'string' && typeof callback === 'function') {
             let wrapped = (...args) => {
                 this._forgetListener(event, wrapped);
@@ -407,7 +464,7 @@ class DomElement {
             if (listenerOptions.signal?.aborted) return this;
             this.html.addEventListener(event, wrapped, listenerOptions);
             this._rememberListener(event, wrapped, listenerOptions);
-            this._sculptor._track(() => {
+            this._own(() => {
                 if (this.html) this.off(event, callback);
             });
         } else {
@@ -609,6 +666,8 @@ class DomElement {
             }
         }
         this._listeners = {};
+        this._untrackers.forEach(untrack => untrack());
+        this._untrackers = [];
         if (this.html?.parentNode) this.html.parentNode.removeChild(this.html);
         this._sculptor?._elements?.delete(this.html);
         DomSculptor._owners.delete(this.html);
@@ -635,10 +694,14 @@ class DomSculptor {
         this._flushPending = false;
         this._batchDepth = 0;
         this._activeScope = null;
+        this._rootScope = new DisposalScope(this);
         this._disposalDepth = 0;
         // A queue per parent lets unrelated DOM branches render independently.
         this._renderQueues = new WeakMap();
         this._activeRenderQueues = 0;
+        // The container node keys each virtual list so one runtime cannot drive another's.
+        this._virtualLists = new WeakMap();
+        this._activeVirtualRenders = 0;
         this.rendering = false;
         this._development = Boolean(options.development);
         this._onWarning = options.onWarning;
@@ -684,8 +747,27 @@ class DomSculptor {
         this._requestFlush();
     }
 
+    _updateRenderingStatus() {
+        // One path owns the flag so create queues and virtual lists cannot clear each other.
+        this.rendering = this._activeRenderQueues > 0 || this._activeVirtualRenders > 0;
+    }
+
     _track(cleanup) {
-        this._activeScope?.track(cleanup);
+        // Without an explicit scope the runtime itself owns the resource, so
+        // nothing created through a sculptor is left without a disposer.
+        let scope = this._activeScope ?? this._rootScope;
+        scope.track(cleanup);
+        return () => scope._untrack(cleanup);
+    }
+
+    dispose() {
+        if (this._rootScope.disposed) return;
+        this._scheduledJobs.clear();
+        this._rootScope.dispose();
+    }
+
+    get disposed() {
+        return this._rootScope.disposed;
     }
 
     _wrapNode(node) {
@@ -875,7 +957,7 @@ class DomSculptor {
             throw new TypeError('DomSculptor.createDetached: expected a tag name.');
         }
         let element = new DomElement(tagName, this);
-        this._track(() => element.remove());
+        element._own(() => element.remove());
         if (callback != null && typeof callback !== 'function') {
             element.remove();
             throw new TypeError('DomSculptor.createDetached: callback must be a function.');
@@ -1017,7 +1099,7 @@ class DomSculptor {
                 queue = [];
                 this._renderQueues.set(resolved.node, queue);
                 this._activeRenderQueues++;
-                this.rendering = true;
+                this._updateRenderingStatus();
                 let active = true;
                 let cancelQueue;
                 let finishQueue = () => {
@@ -1025,7 +1107,7 @@ class DomSculptor {
                     active = false;
                     this._renderQueues.delete(resolved.node);
                     this._activeRenderQueues--;
-                    this.rendering = this._activeRenderQueues > 0;
+                    this._updateRenderingStatus();
                     if (resolved.element) {
                         resolved.element._removeCallbacks = resolved.element._removeCallbacks
                             .filter(callback => callback !== cancelQueue);
@@ -1207,6 +1289,354 @@ class DomSculptor {
         return stop;
     }
 
+    router(routes, options = {}) {
+        // One route is mounted at a time and leaving a route disposes its view,
+        // so route changes cannot accumulate detached DOM or subscriptions.
+        if (!routes || typeof routes !== 'object') {
+            throw new TypeError('DomSculptor.router: expected a routes object.');
+        }
+        let compiled = Object.keys(routes).map(pattern => {
+            let view = routes[pattern];
+            if (typeof view !== 'function') {
+                throw new TypeError(`DomSculptor.router: route "${pattern}" must be a function.`);
+            }
+            let names = [];
+            let source = pattern.split('/').map(segment => {
+                if (segment === '*') {
+                    names.push('rest');
+                    return '(.*)';
+                }
+                if (segment[0] === ':') {
+                    names.push(segment.slice(1));
+                    return '([^/]+)';
+                }
+                return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }).join('/');
+            return { pattern, view, names, matcher: new RegExp(`^${source}$`) };
+        });
+        let parent = options.parent ?? document.body;
+        let parentElement = parent instanceof DomElement
+            ? parent
+            : this._wrapNode(this._resolveParent(parent).node);
+        let readPath = () => options.hash
+            ? (location.hash.slice(1) || '/')
+            : location.pathname;
+        let match = path => {
+            for (let route of compiled) {
+                let found = route.matcher.exec(path);
+                if (!found) continue;
+                let params = {};
+                route.names.forEach((name, index) => {
+                    params[name] = decodeURIComponent(found[index + 1]);
+                });
+                return { path, route: route.pattern, params };
+            }
+            return { path, route: null, params: {} };
+        };
+
+        let current = this.signal(match(readPath()));
+        let active = null;
+        let stopped = false;
+        let render = () => {
+            if (stopped) return;
+            if (active) {
+                active.dispose();
+                active = null;
+            }
+            let snapshot = current.get();
+            let route = compiled.find(entry => entry.pattern === snapshot.route);
+            if (!route) return;
+            active = route.view(snapshot);
+            if (active) this.mount(active, parentElement);
+        };
+        let apply = path => {
+            let snapshot = match(path);
+            if (snapshot.path === current.get().path && snapshot.route === current.get().route) return;
+            current.set(snapshot);
+        };
+        let navigate = (path, replace) => {
+            if (typeof path !== 'string' || !path) {
+                throw new TypeError('DomSculptor.router.navigate: expected a path.');
+            }
+            let target = options.hash ? `#${path}` : path;
+            history[replace ? 'replaceState' : 'pushState']({}, '', target);
+            apply(path);
+        };
+        let onLocationChange = () => apply(readPath());
+        let event = options.hash ? 'hashchange' : 'popstate';
+        window.addEventListener(event, onLocationChange);
+        let unsubscribe = current.subscribe(() => this._schedule(render));
+        render();
+
+        let stop = () => {
+            if (stopped) return;
+            stopped = true;
+            untrack();
+            window.removeEventListener(event, onLocationChange);
+            this._scheduledJobs.delete(render);
+            unsubscribe();
+            if (active) {
+                active.dispose();
+                active = null;
+            }
+            current.dispose();
+        };
+        let untrack = this._track(stop);
+        return {
+            current,
+            navigate: path => navigate(path, false),
+            replace: path => navigate(path, true),
+            stop,
+            get stopped() { return stopped; }
+        };
+    }
+
+    virtualList(items, container, options = {}) {
+        // Only the visible range plus overscan exists in the DOM; a spacer of the
+        // full collection height keeps the scrollbar representing every record.
+        if (!Array.isArray(items)) {
+            throw new TypeError('DomSculptor.virtualList: expected an items array.');
+        }
+        if (!(container instanceof DomElement)) {
+            throw new TypeError('DomSculptor.virtualList: expected a DomElement container.');
+        }
+        container._assertLive('virtualList');
+        if (this._virtualLists.has(container.html)) {
+            throw new Error('DomSculptor.virtualList: container is already virtualized.');
+        }
+        let rowHeight = options.rowHeight;
+        if (typeof rowHeight !== 'number' || !(rowHeight > 0)) {
+            throw new TypeError('DomSculptor.virtualList: rowHeight must be a positive number.');
+        }
+        if (typeof options.render !== 'function') {
+            throw new TypeError('DomSculptor.virtualList: render must be a function.');
+        }
+        let overscan = options.overscan ?? 4;
+        let keyOf = options.key ?? null;
+        let aria = options.aria !== false;
+        let keyFor = (item, index) => keyOf ? keyOf(item, index) : index;
+        let copyItems = list => {
+            if (!Array.isArray(list)) {
+                throw new TypeError('DomSculptor.virtualList: expected an items array.');
+            }
+            if (keyOf) {
+                // Reject duplicates before any DOM mutation so a failed update leaves the list intact.
+                let seen = new Set();
+                list.forEach((item, index) => {
+                    let key = keyOf(item, index);
+                    if (seen.has(key)) {
+                        throw new TypeError(`DomSculptor.virtualList: duplicate key "${String(key)}".`);
+                    }
+                    seen.add(key);
+                });
+            }
+            return list.slice();
+        };
+
+        let stored = copyItems(items);
+        let spacer = this.createDetached('div');
+        let content = this.createDetached('div');
+        spacer.setStyle({ position: 'relative', width: '100%' });
+        content.setStyle({ position: 'absolute', top: '0px', left: '0px', right: '0px' });
+        spacer.child.append(content);
+        if (aria) container.attribute.set('role', 'list');
+
+        let state = {
+            items: stored,
+            rows: new Map(),
+            start: 0,
+            end: 0,
+            pendingFrame: null,
+            disposed: false,
+            rowHeight,
+            keyFor,
+            spacer,
+            content,
+            copyItems
+        };
+
+        let apply = () => {
+            if (state.disposed || !container.html) return;
+            let node = container.html;
+            let total = state.items.length;
+            let viewport = node.clientHeight || 0;
+            let scrollTop = node.scrollTop || 0;
+            spacer.setStyle('height', `${total * rowHeight}px`);
+            let firstVisible = total ? Math.min(Math.floor(scrollTop / rowHeight), total - 1) : 0;
+            let start = total ? Math.max(0, firstVisible - overscan) : 0;
+            let end = total
+                ? Math.min(total, firstVisible + Math.ceil(viewport / rowHeight) + overscan + 1)
+                : 0;
+
+            let needed = new Map();
+            for (let index = start; index < end; index++) needed.set(keyFor(state.items[index], index), index);
+            let ordered = [];
+            let added = [];
+            let release = key => {
+                let row = state.rows.get(key);
+                state.rows.delete(key);
+                try { row.dispose?.(); } finally { row.root.dispose(); }
+            };
+            // Build first so a failing render can be rolled back with the old rows intact.
+            try {
+                needed.forEach((index, key) => {
+                    let item = state.items[index];
+                    let row = state.rows.get(key);
+                    if (!row) {
+                        let produced = options.render(item, index);
+                        row = produced instanceof DomElement ? { root: produced } : produced;
+                        if (!row || !(row.root instanceof DomElement)) {
+                            throw new TypeError('DomSculptor.virtualList: render must return a DomElement or a row object.');
+                        }
+                        row.root.setStyle('height', `${rowHeight}px`);
+                        if (aria) row.root.attribute.set('role', 'listitem');
+                        state.rows.set(key, row);
+                        added.push(key);
+                        content.child.append(row.root);
+                    } else {
+                        row.update?.(item, index);
+                    }
+                    if (aria) {
+                        row.root.attribute.set({ 'aria-posinset': index + 1, 'aria-setsize': total });
+                    }
+                    ordered.push(row.root);
+                });
+            } catch (error) {
+                added.forEach(release);
+                throw error;
+            }
+            state.rows.forEach((row, key) => {
+                if (!needed.has(key)) release(key);
+            });
+
+            // Reorder in place so scrolling upward keeps rows in index order.
+            ordered.forEach((row, position) => {
+                let existing = content.html.childNodes[position];
+                if (existing === row.html) return;
+                if (existing) content.html.insertBefore(row.html, existing);
+                else content.html.appendChild(row.html);
+            });
+
+            content.setStyle('transform', `translateY(${start * rowHeight}px)`);
+            state.start = start;
+            state.end = end;
+        };
+
+        let schedule = () => {
+            if (state.disposed || state.pendingFrame != null) return;
+            this._activeVirtualRenders++;
+            this._updateRenderingStatus();
+            let frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : setTimeout;
+            state.pendingFrame = frame(() => {
+                state.pendingFrame = null;
+                try { apply(); } finally {
+                    this._activeVirtualRenders--;
+                    this._updateRenderingStatus();
+                }
+            });
+        };
+
+        container.html.addEventListener('scroll', schedule);
+        let observer = null;
+        let resizing = false;
+        if (typeof ResizeObserver === 'function') {
+            observer = new ResizeObserver(schedule);
+            observer.observe(container.html);
+        } else if (typeof window !== 'undefined' && window.addEventListener) {
+            resizing = true;
+            window.addEventListener('resize', schedule);
+        }
+
+        state.apply = apply;
+        state.teardown = () => {
+            container.html?.removeEventListener('scroll', schedule);
+            observer?.disconnect();
+            if (resizing) window.removeEventListener('resize', schedule);
+            if (state.pendingFrame != null && typeof cancelAnimationFrame === 'function') {
+                cancelAnimationFrame(state.pendingFrame);
+            }
+            if (state.pendingFrame != null) {
+                state.pendingFrame = null;
+                this._activeVirtualRenders--;
+                this._updateRenderingStatus();
+            }
+        };
+        this._virtualLists.set(container.html, state);
+        container.onDispose(() => this.disposeVirtualList(container));
+        container.child.append(spacer);
+        apply();
+        return container;
+    }
+
+    updateVirtualList(container, nextItems) {
+        let state = this._virtualLists.get(container?.html);
+        if (!state || state.disposed) {
+            throw new Error('DomSculptor.updateVirtualList: container is not virtualized.');
+        }
+        state.items = state.copyItems(nextItems);
+        let node = container.html;
+        let maxScroll = Math.max(0, state.items.length * state.rowHeight - (node.clientHeight || 0));
+        // A shrunken collection must not leave the viewport scrolled past its end.
+        if ((node.scrollTop || 0) > maxScroll) node.scrollTop = maxScroll;
+        state.apply();
+        return container;
+    }
+
+    scrollVirtualList(container, target, options = {}) {
+        let state = this._virtualLists.get(container?.html);
+        if (!state || state.disposed) return false;
+        let index = target;
+        if (target && typeof target === 'object') {
+            options = target;
+            index = state.items.findIndex((item, position) => Object.is(state.keyFor(item, position), target.key));
+        }
+        if (!Number.isInteger(index) || index < 0 || index >= state.items.length) return false;
+        let node = container.html;
+        let viewport = node.clientHeight || 0;
+        let rowTop = index * state.rowHeight;
+        let scrollTop = node.scrollTop || 0;
+        let align = options.align || 'start';
+        let target_ = rowTop;
+        if (align === 'end') target_ = rowTop - viewport + state.rowHeight;
+        else if (align === 'center') target_ = rowTop - viewport / 2 + state.rowHeight / 2;
+        else if (align === 'nearest') {
+            if (rowTop >= scrollTop && rowTop + state.rowHeight <= scrollTop + viewport) return true;
+            target_ = rowTop < scrollTop ? rowTop : rowTop - viewport + state.rowHeight;
+        }
+        let maxScroll = Math.max(0, state.items.length * state.rowHeight - viewport);
+        node.scrollTop = Math.max(0, Math.min(target_, maxScroll));
+        state.apply();
+        return true;
+    }
+
+    virtualListStatus(container) {
+        let state = this._virtualLists.get(container?.html);
+        if (!state) return null;
+        return Object.freeze({
+            rendering: state.pendingFrame != null,
+            start: state.start,
+            end: state.end,
+            mounted: state.rows.size,
+            total: state.items.length
+        });
+    }
+
+    disposeVirtualList(container) {
+        let state = this._virtualLists.get(container?.html);
+        if (!state || state.disposed) return container;
+        state.disposed = true;
+        state.teardown();
+        this._virtualLists.delete(container.html);
+        state.rows.forEach(row => {
+            try { row.dispose?.(); } finally { row.root.dispose(); }
+        });
+        state.rows.clear();
+        state.items = [];
+        state.content.dispose();
+        state.spacer.dispose();
+        return container;
+    }
+
     wrap(selectorOrNode) {
         // Strict wrapping reports invalid selectors; tryWrap provides the nullable form.
         let node;
@@ -1241,11 +1671,14 @@ class DomSculptor {
         let autoUnsub = (element, unsub) => {
             // DOM bindings cannot outlive the element that owns their subscription.
             element.onRemove(unsub);
-            sculptor._track(unsub);
+            element._own(unsub);
         };
 
         let store = {
-            get() { return value; },
+            get() {
+                activeTracker?.(store);
+                return value;
+            },
             set(next) {
                 if (disposed) throw new Error('DomSculptor: cannot write to a disposed signal.');
                 if (sculptor._disposalDepth) {
@@ -1601,6 +2034,7 @@ class DomSculptor {
             },
             dispose() {
                 if (disposed) return;
+                untrack();
                 if (subscribers.length) {
                     sculptor._warn(
                         'subscription-cleanup',
@@ -1615,7 +2049,7 @@ class DomSculptor {
                 return disposed;
             }
         };
-        this._track(() => store.dispose());
+        let untrack = this._track(() => store.dispose());
         return store;
     }
 
@@ -1623,26 +2057,35 @@ class DomSculptor {
         return this.state(initial);
     }
 
-    computed(compute, dependencies = []) {
+    computed(compute, dependencies = null) {
         // Computed values are lazy until first read and then cache dependency updates.
         if (typeof compute !== 'function') throw new TypeError('DomSculptor.computed: expected a function.');
-        if (!Array.isArray(dependencies)) throw new TypeError('DomSculptor.computed: dependencies must be an array.');
-        dependencies.forEach(dependency => {
-            if (!dependency || typeof dependency.subscribe !== 'function') {
-                throw new TypeError('DomSculptor.computed: every dependency must be a signal.');
+        // Omitting the list tracks reads automatically; passing one pins the dependencies.
+        let explicit = dependencies != null;
+        if (explicit) {
+            if (!Array.isArray(dependencies)) {
+                throw new TypeError('DomSculptor.computed: dependencies must be an array.');
             }
-        });
+            dependencies.forEach(dependency => {
+                if (!dependency || typeof dependency.subscribe !== 'function') {
+                    throw new TypeError('DomSculptor.computed: every dependency must be a signal.');
+                }
+            });
+        }
 
         let output = this.state(undefined);
         let initialized = false;
         let evaluating = false;
         let disposed = false;
+        let tracked = explicit ? null : createTrackedRun(() => {
+            if (initialized) evaluate();
+        });
         let evaluate = () => {
             if (disposed) throw new Error('DomSculptor: cannot read a disposed computed signal.');
             if (evaluating) throw new Error('DomSculptor.computed: cycle detected.');
             evaluating = true;
             try {
-                let next = compute();
+                let next = explicit ? compute() : tracked.run(compute);
                 if (!initialized || !Object.is(output.get(), next)) {
                     initialized = true;
                     output.set(next);
@@ -1652,9 +2095,9 @@ class DomSculptor {
                 evaluating = false;
             }
         };
-        let unsubscribers = dependencies.map(dependency => dependency.subscribe(() => {
+        let unsubscribers = explicit ? dependencies.map(dependency => dependency.subscribe(() => {
             if (initialized) evaluate();
-        }));
+        })) : [];
 
         let computed = {
             get() {
@@ -1668,26 +2111,35 @@ class DomSculptor {
             dispose() {
                 if (disposed) return;
                 disposed = true;
+                untrack();
                 unsubscribers.forEach(unsubscribe => unsubscribe());
+                tracked?.stop();
                 output.dispose();
             },
             get disposed() { return disposed; }
         };
-        this._track(() => computed.dispose());
+        let untrack = this._track(() => computed.dispose());
         return computed;
     }
 
-    effect(run, dependencies = []) {
+    effect(run, dependencies = null) {
         // Effect cleanup runs before reruns and once more when the effect stops.
         if (typeof run !== 'function') throw new TypeError('DomSculptor.effect: expected a function.');
-        if (!Array.isArray(dependencies)) throw new TypeError('DomSculptor.effect: dependencies must be an array.');
-        dependencies.forEach(dependency => {
-            if (!dependency || typeof dependency.subscribe !== 'function') {
-                throw new TypeError('DomSculptor.effect: every dependency must be a signal.');
+        // Omitting the list tracks reads automatically; passing one pins the dependencies.
+        let explicit = dependencies != null;
+        if (explicit) {
+            if (!Array.isArray(dependencies)) {
+                throw new TypeError('DomSculptor.effect: dependencies must be an array.');
             }
-        });
+            dependencies.forEach(dependency => {
+                if (!dependency || typeof dependency.subscribe !== 'function') {
+                    throw new TypeError('DomSculptor.effect: every dependency must be a signal.');
+                }
+            });
+        }
         let active = true;
         let cleanup = null;
+        let tracked = explicit ? null : createTrackedRun(() => this._schedule(execute));
         let execute = () => {
             if (!active) return;
             if (cleanup) {
@@ -1695,26 +2147,30 @@ class DomSculptor {
                 cleanup = null;
                 previousCleanup();
             }
-            let nextCleanup = run();
+            let nextCleanup = explicit ? run() : tracked.run(run);
             if (nextCleanup != null && typeof nextCleanup !== 'function') {
                 throw new TypeError('DomSculptor.effect: cleanup must be a function.');
             }
             cleanup = nextCleanup || null;
         };
-        let unsubscribers = dependencies.map(dependency => dependency.subscribe(() => this._schedule(execute)));
+        let unsubscribers = explicit
+            ? dependencies.map(dependency => dependency.subscribe(() => this._schedule(execute)))
+            : [];
         execute();
         let stop = () => {
             if (!active) return;
             active = false;
             this._scheduledJobs.delete(execute);
+            untrack();
             unsubscribers.forEach(unsubscribe => unsubscribe());
+            tracked?.stop();
             if (cleanup) {
                 let finalCleanup = cleanup;
                 cleanup = null;
                 finalCleanup();
             }
         };
-        this._track(stop);
+        let untrack = this._track(stop);
         return stop;
     }
 
@@ -1811,8 +2267,12 @@ class DomSculptor {
         let anyListeners = [];
         let disposed = false;
 
+        // Deleted keys retire their signal so listeners survive a later re-set.
+        let retired = new Map();
+
         let ensureSignal = key => {
-            if (!signals.has(key)) signals.set(key, sculptor.state(undefined));
+            if (!signals.has(key)) signals.set(key, retired.get(key) ?? sculptor.state(undefined));
+            retired.delete(key);
             return signals.get(key);
         };
 
@@ -1859,6 +2319,23 @@ class DomSculptor {
                     throw new TypeError('DomSculptor.data.update: updater must be a function.');
                 }
                 return api.set(key, fn(api.get(key), key));
+            },
+            has(key) {
+                return signals.has(key);
+            },
+            delete(key) {
+                if (disposed) throw new Error('DomSculptor: cannot write to a disposed data store.');
+                if (!signals.has(key)) return false;
+                // Observers see the value disappear before the key leaves the store.
+                api.set(key, undefined);
+                retired.set(key, signals.get(key));
+                return signals.delete(key);
+            },
+            signal(key) {
+                if (typeof key !== 'string') {
+                    throw new TypeError('DomSculptor.data.signal: key must be a string.');
+                }
+                return ensureSignal(key);
             },
             onChange(key, callback, options = {}) {
                 if (disposed) throw new Error('DomSculptor: cannot subscribe to a disposed data store.');
@@ -1928,6 +2405,7 @@ class DomSculptor {
             },
             dispose() {
                 if (disposed) return;
+                untrack();
                 let listenerCount = anyListeners.length;
                 keyListeners.forEach(records => { listenerCount += records.length; });
                 if (listenerCount) {
@@ -1941,13 +2419,15 @@ class DomSculptor {
                 keyListeners.clear();
                 anyListeners.slice().forEach(record => record.unsubscribe());
                 signals.forEach(signal => signal.dispose());
+                retired.forEach(signal => signal.dispose());
+                retired.clear();
             },
             get disposed() {
                 return disposed;
             }
         };
 
-        this._track(() => api.dispose());
+        let untrack = this._track(() => api.dispose());
         return api;
     }
 

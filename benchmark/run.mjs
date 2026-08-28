@@ -43,85 +43,81 @@ try {
     await page.goto(`http://127.0.0.1:${port}/benchmark/index.html`);
     let raw = await page.evaluate(async () => {
         let { default: DomSculptor } = await import('/src/index.js');
-        let run = (name, iterations = 25) => {
-            let samples = [];
-            for (let sample = 0; sample < iterations; sample++) {
-                let sculptor = new DomSculptor();
-                let items = Array.from({ length: 1_000 }, (_, id) => ({ id, label: `Row ${id}` }));
-                let state;
-                let container;
-                let start;
-                let stop;
-                let setupList = () => {
-                    state = sculptor.signal(items);
-                    container = sculptor.createDetached('div');
-                    state.list(container, {
-                        key: item => item.id,
-                        render: item => sculptor.createDetached('div').setText(item.label),
-                        update: (row, item) => row.setText(item.label)
-                    });
-                    sculptor.mount(container, document.body);
-                };
+        let run = name => {
+            let sculptor = new DomSculptor();
+            let items = Array.from({ length: 1_000 }, (_, id) => ({ id, label: `Row ${id}` }));
+            let state;
+            let container;
+            let start;
+            let stop;
+            let setupList = () => {
+                state = sculptor.signal(items);
+                container = sculptor.createDetached('div');
+                state.list(container, {
+                    key: item => item.id,
+                    render: item => sculptor.createDetached('div').setText(item.label),
+                    update: (row, item) => row.setText(item.label)
+                });
+                sculptor.mount(container, document.body);
+            };
 
-                if (name === 'keyed-list-create-1000') {
-                    start = performance.now();
-                    setupList();
-                    stop = performance.now();
-                } else if (name === 'signal-updates-unbatched' || name === 'signal-updates-batched') {
-                    let value = sculptor.signal(0);
-                    let target = sculptor.createDetached('span');
-                    value.bindText(target);
-                    start = performance.now();
-                    if (name === 'signal-updates-batched') {
-                        sculptor.batch(() => {
-                            for (let index = 0; index < 1_000; index++) value.set(index);
-                        });
-                    } else {
+            if (name === 'keyed-list-create-1000') {
+                start = performance.now();
+                setupList();
+                stop = performance.now();
+            } else if (name === 'signal-updates-unbatched' || name === 'signal-updates-batched') {
+                let value = sculptor.signal(0);
+                let target = sculptor.createDetached('span');
+                value.bindText(target);
+                start = performance.now();
+                if (name === 'signal-updates-batched') {
+                    sculptor.batch(() => {
                         for (let index = 0; index < 1_000; index++) value.set(index);
-                    }
-                    sculptor.flush();
-                    stop = performance.now();
-                    target.dispose();
-                    value.dispose();
-                } else if (name === 'listener-subscription-cleanup') {
-                    let elements = [];
-                    let subscriptions = [];
-                    for (let index = 0; index < 1_000; index++) {
-                        let element = sculptor.createDetached('button').on('click', () => {});
-                        let value = sculptor.signal(index);
-                        subscriptions.push({ value, unsubscribe: value.subscribe(() => {}) });
-                        elements.push(element);
-                    }
-                    start = performance.now();
-                    elements.forEach(element => element.dispose());
-                    subscriptions.forEach(({ value, unsubscribe }) => {
-                        unsubscribe();
-                        value.dispose();
                     });
-                    stop = performance.now();
                 } else {
-                    setupList();
-                    let next = items.slice();
-                    start = performance.now();
-                    if (name === 'append-one') next.push({ id: 1_000, label: 'Row 1000' });
-                    if (name === 'prepend-one') next.unshift({ id: 1_000, label: 'Row 1000' });
-                    if (name === 'remove-middle') next.splice(500, 1);
-                    if (name === 'swap-two') [next[1], next[998]] = [next[998], next[1]];
-                    if (name === 'update-every-tenth') {
-                        next = next.map((item, index) =>
-                            index % 10 === 0 ? { ...item, label: `Updated ${item.id}` } : item
-                        );
-                    }
-                    if (name === 'clear-all') next = [];
-                    state.set(next);
-                    sculptor.flush();
-                    stop = performance.now();
+                    for (let index = 0; index < 1_000; index++) value.set(index);
                 }
-                samples.push(stop - start);
-                container?.dispose();
-                state?.dispose();
+                sculptor.flush();
+                stop = performance.now();
+                target.dispose();
+                value.dispose();
+            } else if (name === 'listener-subscription-cleanup') {
+                let elements = [];
+                let subscriptions = [];
+                for (let index = 0; index < 1_000; index++) {
+                    let element = sculptor.createDetached('button').on('click', () => {});
+                    let value = sculptor.signal(index);
+                    subscriptions.push({ value, unsubscribe: value.subscribe(() => {}) });
+                    elements.push(element);
+                }
+                start = performance.now();
+                elements.forEach(element => element.dispose());
+                subscriptions.forEach(({ value, unsubscribe }) => {
+                    unsubscribe();
+                    value.dispose();
+                });
+                stop = performance.now();
+            } else {
+                setupList();
+                let next = items.slice();
+                start = performance.now();
+                if (name === 'append-one') next.push({ id: 1_000, label: 'Row 1000' });
+                if (name === 'prepend-one') next.unshift({ id: 1_000, label: 'Row 1000' });
+                if (name === 'remove-middle') next.splice(500, 1);
+                if (name === 'swap-two') [next[1], next[998]] = [next[998], next[1]];
+                if (name === 'update-every-tenth') {
+                    next = next.map((item, index) =>
+                        index % 10 === 0 ? { ...item, label: `Updated ${item.id}` } : item
+                    );
+                }
+                if (name === 'clear-all') next = [];
+                state.set(next);
+                sculptor.flush();
+                stop = performance.now();
             }
-            return samples;
+            container?.dispose();
+            state?.dispose();
+            return stop - start;
         };
         let runCreate = async (method, iterations) => {
             let samples = [];
@@ -153,7 +149,18 @@ try {
             'signal-updates-batched',
             'listener-subscription-cleanup'
         ];
-        let results = Object.fromEntries(names.map(name => [name, run(name)]));
+        // Cases are interleaved and early rounds discarded: running each case's
+        // samples consecutively let JIT warm-up and GC timing move medians by
+        // milliseconds, which made unrelated changes look like regressions.
+        let warmupRounds = 5;
+        let measuredRounds = 25;
+        let results = Object.fromEntries(names.map(name => [name, []]));
+        for (let round = 0; round < warmupRounds + measuredRounds; round++) {
+            for (let name of names) {
+                let duration = run(name);
+                if (round >= warmupRounds) results[name].push(duration);
+            }
+        }
         results['immediate-create-100'] = await runCreate('create', 25);
         results['progressive-create-100'] = await runCreate('createProgressively', 5);
         return results;

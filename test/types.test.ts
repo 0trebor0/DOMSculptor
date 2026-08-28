@@ -44,6 +44,38 @@ form.set('age', 37);
 form.set('age', 'old');
 // @ts-expect-error unknown store key
 form.set('missing', true);
+let virtualHost = sculptor.create('div');
+sculptor.virtualList([{ id: 1, name: 'Ada' }], virtualHost, {
+    rowHeight: 48,
+    overscan: 6,
+    key: person => person.id,
+    render: person => sculptor.create('div').setText(person.name)
+});
+sculptor.updateVirtualList(virtualHost, [{ id: 2, name: 'Grace' }]);
+let scrolled: boolean = sculptor.scrollVirtualList(virtualHost, 0, { align: 'center' });
+let scrolledToKey: boolean = sculptor.scrollVirtualList(virtualHost, { key: 2, align: 'nearest' });
+let mountedRows: number | undefined = sculptor.virtualListStatus(virtualHost)?.mounted;
+sculptor.disposeVirtualList(virtualHost);
+// @ts-expect-error rowHeight is required
+sculptor.virtualList([], virtualHost, { render: () => sculptor.create('div') });
+
+let appRouter = sculptor.router({
+    '/': () => sculptor.create('div'),
+    '/posts/:slug': snapshot => sculptor.create('article').setText(snapshot.params.slug)
+}, { parent: '#app' });
+appRouter.navigate('/posts/hello');
+appRouter.replace('/');
+let routePath: string = appRouter.current.get().path;
+appRouter.stop();
+// @ts-expect-error routes must return a view
+sculptor.router({ '/': () => 42 });
+
+let hasAge: boolean = form.has('age');
+let ageSignal = form.signal('age');
+ageSignal.set(38);
+// @ts-expect-error per-key signals stay typed
+ageSignal.set('old');
+let removedAge: boolean = form.delete('age');
 
 let view = tree({ tag: 'section', class: ['panel', 'active'], children: ['safe', input] });
 // @ts-expect-error the tree API uses class, not classes
