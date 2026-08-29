@@ -2093,8 +2093,10 @@ test('direct bindings write every supported target', () => {
     assert.notEqual(visibleTarget.html.style.display, 'none');
 
     let hiddenTarget = sculptor.create('div');
+    // bindHidden is the exact mirror of bindVisible and goes through the same
+    // show/hide pair, so it moves inline display rather than the hidden property.
     value.bindHidden(hiddenTarget, next => next === 'ready');
-    assert.equal(hiddenTarget.html.hidden, true);
+    assert.equal(hiddenTarget.html.style.display, 'none');
 
     let propertyTarget = sculptor.create('input');
     value.bindProperty(propertyTarget, 'title');
@@ -2110,7 +2112,7 @@ test('direct bindings write every supported target', () => {
     assert.equal(classTarget.class.contains('is-ready'), false);
     assert.equal(styleTarget.html.style.color, 'red');
     assert.equal(visibleTarget.html.style.display, 'none');
-    assert.equal(hiddenTarget.html.hidden, false);
+    assert.notEqual(hiddenTarget.html.style.display, 'none');
     assert.equal(propertyTarget.html.title, 'busy');
     assert.equal(valueTarget.html.value, 'busy');
 

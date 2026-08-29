@@ -297,9 +297,14 @@ try {
     assert(!focusButton.isFocused(), 'blur helper did not release focus');
     let hiddenState = sculptor.signal(false);
     hiddenState.bindHidden(focusButton);
+    let displayBeforeHiding = focusButton.html.style.display;
     hiddenState.set(true);
     sculptor.flush();
-    assert(focusButton.html.hidden === true, 'hidden binding did not update the native property');
+    assert(focusButton.html.style.display === 'none', 'hidden binding did not hide the element');
+    hiddenState.set(false);
+    sculptor.flush();
+    assert(focusButton.html.style.display === displayBeforeHiding,
+        'hidden binding did not restore the previous display value');
 
     let unsafeText = '<img src=x onerror=window.__unsafeTree=true>';
     let safeTree = sculptor.tree({ tag: 'div', text: unsafeText });

@@ -1928,7 +1928,12 @@ class DomSculptor {
                 });
             },
             bindHidden(element, transform = v => Boolean(v)) {
-                return store.bindProperty(element, 'hidden', transform);
+                // The exact mirror of bindVisible, through the same show/hide pair,
+                // so two bindings with the same shape cannot behave differently.
+                return store.bind(element, v => {
+                    if (transform(v)) element.hide();
+                    else element.show();
+                });
             },
             bindProperty(element, name, transform = v => v) {
                 if (typeof name !== 'string' || !name) {

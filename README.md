@@ -460,11 +460,9 @@ status.bindProperty(label, 'hidden', value => value === 'hidden');
 
 Use `bindValue()` for a one-way value binding. Use `sync()` when user input should also update the state.
 
-`bindVisible()` and `bindHidden()` take the same shape but work differently:
-`bindVisible()` toggles inline `display` through `show()` and `hide()`, so it
-restores whatever display value the element had, while `bindHidden()` sets the
-native `hidden` property and leaves inline styles alone. Prefer `bindHidden()`
-unless something depends on the inline style.
+`bindVisible()` and `bindHidden()` are exact mirrors of each other. Both go
+through the same `show()` and `hide()` pair, so both restore whatever display
+value the element had; they differ only in which way round the signal reads.
 
 ```js
 let name = sculptor.state('Ada');

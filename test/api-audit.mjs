@@ -547,16 +547,16 @@ try {
             sculptor.flush();
             eq(visible.html.style.display, 'none', 'bindVisible');
 
-            // bindVisible toggles inline display through show()/hide(); bindHidden
-            // sets the native hidden property. Different mechanisms, same shape.
+            // bindHidden is the exact mirror of bindVisible, through the same
+            // show/hide pair, and restores the previous display value.
             let hidden = sculptor.signal(true);
             let other = sculptor.create('div', host());
+            other.setStyle('display', 'grid');
             hidden.bindHidden(other);
-            eq(other.html.hidden, true, 'bindHidden sets the hidden property');
-            eq(other.html.style.display, '', 'bindHidden does not touch inline display');
+            eq(other.html.style.display, 'none', 'bindHidden hides when truthy');
             hidden.set(false);
             sculptor.flush();
-            eq(other.html.hidden, false, 'bindHidden updates');
+            eq(other.html.style.display, 'grid', 'bindHidden restores the previous display');
 
             let custom = sculptor.signal('c');
             let manual = sculptor.create('div', host());

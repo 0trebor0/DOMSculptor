@@ -72,6 +72,13 @@ uses [Semantic Versioning](https://semver.org/).
   return value, `asyncState.run()`'s contract, dependency-less `computed()` and
   `effect()`, and the timing of dispose hooks all changed. The migration guide in
   `docs/index.html` lists them.
+- `bindHidden()` is now the exact mirror of `bindVisible()`. Both go through the
+  same `show()` and `hide()` pair and restore the element's previous display
+  value, differing only in which way round the signal reads. `bindHidden()`
+  previously set the native `hidden` property instead, so two bindings with the
+  same signature and the same declared type behaved differently and nothing said
+  so. Code that read `element.html.hidden` after a `bindHidden()` should read the
+  signal, or use `bindProperty(element, 'hidden')` for the old mechanism.
 - `child.append()` and `child.prepend()` return the element that was added rather
   than the container, so a structure can be built downwards without a temporary
   variable for every level. Appending a raw node or a string still returns the
@@ -111,10 +118,6 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Documented that `bindVisible()` and `bindHidden()` work differently despite
-  taking the same shape: the first toggles inline `display` through `show()` and
-  `hide()`, the second sets the native `hidden` property and leaves inline styles
-  alone. Nothing said so before.
 - A subscription created with `signal.subscribe()` inside a scope now belongs to
   that scope and is released with it. Element bindings already released
   themselves with their element, but a bare subscribe had no owner at all, which

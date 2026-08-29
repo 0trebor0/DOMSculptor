@@ -756,13 +756,22 @@ Four chances for the runtime to disagree with its own declarations, and it
 disagreed none of them. That is what the tier 3 item 5 drift guard is for, and
 this is independent evidence it is holding.
 
-**One real finding, a documentation gap.** `bindVisible()` and `bindHidden()`
-have the same signature and the same declared type but different mechanisms:
-`bindVisible()` toggles inline `display` through `show()`/`hide()`, so it
-restores whatever display value the element had, while `bindHidden()` sets the
-native `hidden` property and leaves inline styles alone. Nothing in `README.md`
-or `docs/api.html` said so; a reader picking between them by name would have no
-way to know. Both are now documented.
+**One real finding, and it was not a documentation gap after all.**
+`bindVisible()` and `bindHidden()` had the same signature and the same declared
+type but different mechanisms: `bindVisible()` toggled inline `display` through
+`show()`/`hide()`, while `bindHidden()` set the native `hidden` property. Nothing
+in `README.md` or `docs/api.html` said so, and a reader picking between them by
+name had no way to know.
+
+Documenting it was the first response, and the wrong one: two bindings that look
+like a pair, are typed like a pair, and are named like a pair should behave like
+a pair. `bindHidden()` is now the exact mirror of `bindVisible()`, through the
+same `show()`/`hide()` path, restoring the element's previous display value and
+differing only in which way round the signal reads. `bindProperty(element,
+'hidden')` still reaches the native property for anyone who wants it, which is
+what `bindHidden()` was delegating to anyway.
+
+This is a breaking change and is recorded as one, with a migration note.
 
 ## Size budget decision
 
