@@ -113,6 +113,8 @@ let {
     createDevSculptor,
     signal,
     computed,
+    effect,
+    flush,
     tree,
     asyncState
 } = await import('../src/index.js');
@@ -2286,6 +2288,36 @@ test('disposal detaches the node before tearing the subtree down', () => {
     assert.equal(parent.html, null);
     assert.equal(child.html, null);
     assert.equal(grandchild.html, null);
+});
+
+test('the standalone computed and effect exports track their reads', () => {
+    // These wrap the shared default runtime. They kept the old empty-list default
+    // after the class methods moved to automatic tracking, so importing them gave
+    // the opposite behaviour to the one the documentation describes.
+    let source = signal(1);
+    let evaluations = 0;
+    let doubled = computed(() => {
+        evaluations++;
+        return source.get() * 2;
+    });
+
+    assert.equal(doubled.get(), 2);
+    source.set(4);
+    assert.equal(doubled.get(), 8);
+    assert.equal(evaluations, 2);
+
+    let seen = [];
+    let stop = effect(() => { seen.push(source.get()); });
+    assert.deepEqual(seen, [4]);
+    source.set(5);
+    flush();
+    assert.deepEqual(seen, [4, 5]);
+    stop();
+
+    let pinned = computed(() => source.get(), []);
+    assert.equal(pinned.get(), 5);
+    source.set(6);
+    assert.equal(pinned.get(), 5);
 });
 
 test('an explicit empty dependency list opts out of automatic tracking', () => {

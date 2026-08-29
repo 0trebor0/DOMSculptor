@@ -75,6 +75,11 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The standalone `computed()` and `effect()` exports now track their reads like
+  the methods of the same name. They kept the old empty-list default when
+  automatic tracking was added, so `import { computed } from 'domsculptor'`
+  produced a value that never re-ran, which is the opposite of what this file
+  and the README describe. Passing a dependency list is unaffected.
 - `npm run benchmark` now interleaves its cases and discards warm-up rounds.
   Running each case's samples consecutively let JIT warm-up and garbage
   collection move medians by several milliseconds between invocations, which
