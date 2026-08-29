@@ -134,14 +134,11 @@ scope.run(() =&gt; {
   const status = sculptor.create("p").attribute.set({ "aria-live": "polite" });
   query.bind(input);
   input.on("input", async () =&gt; {
-    try {
-      await request.run(({ signal }) =&gt;
-        fetch(`/api/users?q=${encodeURIComponent(query.get())}`, { signal }).then(response =&gt; response.json())
-      );
-      status.setText(`${request.get().data.length} users`);
-    } catch (error) {
-      if (error.name !== "AbortError") status.setText("Search failed");
-    }
+    const snapshot = await request.run(({ signal }) =&gt;
+      fetch(`/api/users?q=${encodeURIComponent(query.get())}`, { signal }).then(response =&gt; response.json())
+    );
+    if (snapshot.status === "success") status.setText(`${snapshot.data.length} users`);
+    if (snapshot.status === "error") status.setText("Search failed");
   });
   sculptor.mount(sculptor.tree({ tag: "section", children: [input, status] }), "#app");
 });

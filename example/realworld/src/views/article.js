@@ -305,7 +305,7 @@ export let articleView = ({ sculptor, session, navigate, params, scope }) => {
             }]
         }));
         refs.body.child.append(sculptor.tree({ tag: 'hr' }));
-        refs.body.child.append(sculptor.tree({ tag: 'div', class: 'article-actions' }).child.append(meta()));
+        refs.body.child.append(sculptor.tree({ tag: 'div', class: 'article-actions', children: [meta()] }));
         refs.commentBox.child.clear();
         refs.commentBox.child.append(commentBox());
     };

@@ -60,7 +60,7 @@
         <article><h3>Attributes</h3><p><code>attribute.set(name, value)</code>, <code>attribute.set(object)</code>, <code>remove</code>, <code>get</code>, and <code>has</code>. <code>attr(name, readable)</code> creates a reactive binding: <code>null</code> and <code>false</code> remove the attribute, while <code>true</code> writes an empty attribute.</p></article>
         <article><h3>Classes and styles</h3><p><code>class.add/remove/toggle/contains</code>, <code>classToggle</code> (one class, or a map of class names to signals or booleans), <code>setStyle</code>, and reactive <code>styleValue</code>.</p></article>
         <article><h3>Visibility and focus</h3><p><code>hide()</code>, <code>show()</code>, <code>focus(options?)</code>, <code>blur()</code>, and <code>isFocused()</code>. Showing restores the previous inline display value.</p></article>
-        <article><h3>Children</h3><p><code>child.append</code>, <code>prepend</code>, <code>create</code>, <code>replace</code>, <code>clear</code>, and <code>remove</code>. Accepted children are wrappers, native nodes, and strings.</p></article>
+        <article><h3>Children</h3><p><code>child.append</code>, <code>prepend</code>, <code>create</code>, <code>replace</code>, <code>clear</code>, and <code>remove</code>. Accepted children are wrappers, native nodes, and strings. <code>append</code> and <code>prepend</code> return the element that was added, so a structure can be built downwards without a temporary for every level; a raw node or string has no wrapper to return, so those return the container.</p></article>
         <article><h3>Traversal and placement</h3><p><code>parent()</code>, <code>closest(selector)</code>, <code>childrenOf()</code>, <code>child.find</code>, <code>findAll</code>, <code>before</code>, and <code>after</code>.</p></article>
         <article><h3>Events</h3><p><code>on(event, handler, options?)</code>, event maps, delegated <code>on(event, selector, handler)</code>, <code>once</code>, and <code>off</code>. Disposal releases retained callbacks.</p></article>
         <article><h3>Lifecycle</h3><p><code>onMount</code>, <code>onUnmount</code>, <code>onDispose</code>, and compatibility alias <code>onRemove</code>. Unmount is temporary; dispose is permanent.</p></article>
@@ -134,7 +134,7 @@ count.dispose();</code></pre>
     <section id="async">
       <p class="eyebrow">Cancellable work</p>
       <h2>Async state</h2>
-      <p><code>asyncState(initialData?)</code> exposes snapshots with <code>status</code>, <code>data</code>, and <code>error</code>. Status is <code>idle</code>, <code>loading</code>, <code>refreshing</code>, <code>success</code>, or <code>error</code>. Run work with <code>run(({ signal }) =&gt; task)</code>; later runs abort earlier work by default. Use <code>retry</code>, <code>cancel</code>, and <code>reset</code> for explicit control.</p>
+      <p><code>asyncState(initialData?)</code> exposes snapshots with <code>status</code>, <code>data</code>, and <code>error</code>. Status is <code>idle</code>, <code>loading</code>, <code>refreshing</code>, <code>success</code>, or <code>error</code>. Run work with <code>run(({ signal }) =&gt; task)</code>; later runs abort earlier work by default. Use <code>retry</code>, <code>cancel</code>, and <code>reset</code> for explicit control. <code>run</code> and <code>retry</code> resolve with the resulting snapshot and never reject, so a failed or aborted run needs no handler of its own.</p>
     </section>
 
     <section id="exports">

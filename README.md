@@ -574,7 +574,16 @@ users.reset();
 
 Snapshots use `idle`, `loading`, `refreshing`, `success`, and `error`.
 `refreshing` means existing data is retained while a new request is running.
-`run()` and `retry()` return Promises and reject when work fails or is aborted.
+
+`run()` and `retry()` resolve with the resulting snapshot and never reject, so a
+failed or aborted run needs no handler of its own:
+
+```js
+let { status, data, error } = await users.run(({ signal }) =>
+    fetch('/api/users', { signal }).then(response => response.json())
+);
+if (status === 'error') console.error(error);
+```
 
 ## Reactive Data
 
@@ -799,6 +808,20 @@ sculptor.mount(card, '#app');
 
 DOMSculptor 2.0 removes the deprecated `jsontohtml()` compatibility API.
 Use detached `tree()` configurations for new and migrated code.
+
+### Building downwards
+
+`child.append()` and `child.prepend()` return the element that was added, so a
+structure can be built without a temporary variable for every level. Appending a
+raw node or a string returns the container instead, since there is no wrapper to
+return.
+
+```js
+let leaf = panel.child
+    .append(sculptor.createDetached('section'))
+    .child.append(sculptor.createDetached('p'))
+    .setText('deep');
+```
 
 ### Naming nodes instead of querying for them
 

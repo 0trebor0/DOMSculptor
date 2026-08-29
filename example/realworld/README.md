@@ -55,10 +55,10 @@ failure, because the alternative is a button that feels dead on a slow network.
 
 # What building it found
 
-Two defects and eight pieces of friction. Both defects and seven of the eight are
-now fixed in the library, each with a test that fails if the fix is reverted, and
-this app was rewritten onto the new APIs so the improvement could be counted
-rather than claimed.
+Two defects and eight pieces of friction. **All ten are now fixed**, each with a
+test that fails if the fix is reverted, and this app was rewritten onto the new
+APIs so the improvement could be counted rather than claimed. Two of the fixes
+are breaking changes and need a major version.
 
 ## Defect: every route change leaked
 
@@ -124,14 +124,17 @@ attribute values may be signals and `class` accepts a map. None remain.
 **4. `classToggle()` took one class, so an either/or pair cost four objects.**
 **Fixed:** it accepts a map, and plain booleans as well as signals.
 
-**5. `child.append()` returns the parent, not the child.** **Not fixed, and
-deliberately so.** Changing it would break every chained call in every program
-using the library to trade one inconvenience for another.
+**5. `child.append()` returned the parent, not the child**, so building depth
+outside `tree()` meant a temporary variable per level. **Fixed:** it returns the
+element that was added. A raw node or string still returns the container, since
+there is no wrapper to return. This is a breaking change; only two call sites in
+the repository chained on the old return value, out of 93.
 
-**6. `asyncState.run()` both rejects and records the failure.** **Not fixed.**
-Four `.catch(() => {})` calls remain. The rejection is documented behaviour that
-callers awaiting `run()` depend on, and the redundancy only appears when the
-snapshot is what renders.
+**6. `asyncState.run()` both rejected and recorded the failure**, so every call
+site carried an empty `catch`. **Fixed:** `run()` and `retry()` resolve with the
+resulting snapshot and never reject. The three empty catches in this app are
+gone. The one that remains is a plain `fetch` on the profile endpoint, not an
+`asyncState`. This is a breaking change.
 
 **7. A bare `signal.subscribe()` was owned by nothing.** Element bindings
 released themselves with their element; a plain `subscribe` did not, even inside

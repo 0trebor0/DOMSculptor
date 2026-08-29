@@ -17,7 +17,7 @@ export let profileView = ({ sculptor, session, navigate, params, scope }) => {
         let query = { limit, offset: page.get() * limit };
         if (tab.get() === 'authored') query.author = username;
         else query.favorited = username;
-        articles.run(({ signal }) => api.articles(query, { ...session.options(), signal })).catch(() => {});
+        articles.run(({ signal }) => api.articles(query, { ...session.options(), signal }));
     };
 
     let toggleFollow = async () => {

@@ -76,7 +76,8 @@ users.subscribe(snapshot =&gt; {
 
 await users.run(({ signal }) =&gt;
   fetch("/api/users", { signal }).then(response =&gt; response.json())
-);</code></pre></section>
+);
+// The subscriber above renders every outcome, so run() needs no handler here.</code></pre></section>
 
     <section><h2>Own a route lifetime</h2><pre><code>let activeRoute = null;
 

@@ -186,9 +186,10 @@ formScope.dispose();</code></pre>
       <h2>Cancellation is part of correctness.</h2>
       <pre><code>const users = sculptor.asyncState([]);
 
-await users.run(({ signal }) =&gt;
+const { status, error } = await users.run(({ signal }) =&gt;
   fetch("/users?q=ada", { signal }).then(response =&gt; response.json())
 );
+// run() resolves with the snapshot and never rejects.
 
 users.cancel();
 users.reset();</code></pre>
@@ -275,6 +276,13 @@ const Account = sculptor.component(
         <li>Use <code>unmount()</code> temporarily and <code>dispose()</code> permanently.</li>
         <li>Replace full list renderers with stable keyed configuration.</li>
         <li>Replace the removed <code>jsontohtml()</code> API with detached <code>tree()</code> configurations.</li>
+      </ol>
+      <h3>Coming from 2.0</h3>
+      <ol>
+        <li><code>child.append()</code> and <code>prepend()</code> now return the element that was added rather than the container. Code that chained a second <code>append</code> onto the first was adding a sibling and now adds a descendant; split it into two statements on the container, or use <code>tree()</code>.</li>
+        <li><code>asyncState.run()</code> and <code>retry()</code> resolve with the resulting snapshot and no longer reject or resolve with the data. Replace <code>try/catch</code> and <code>.catch(() =&gt; {})</code> around them with a check of the returned snapshot's <code>status</code> and <code>error</code>.</li>
+        <li><code>computed(fn)</code> and <code>effect(fn)</code> without a dependency list now track the signals they read instead of never re-running. Pass <code>[]</code> to keep the old evaluate-once behaviour.</li>
+        <li>Dispose hooks now receive an element whose node is already detached. Read an element's position before disposing it, not from the hook.</li>
       </ol>
     </section>
 

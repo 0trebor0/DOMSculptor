@@ -19,9 +19,7 @@ export let homeView = ({ sculptor, session, navigate }) => {
             if (active.kind === 'feed') return api.feed(params, options);
             if (active.kind === 'tag') return api.articles({ ...params, tag: active.tag }, options);
             return api.articles(params, options);
-        // run() rejects as well as recording the failure in its snapshot, and the
-        // snapshot is what the list renders, so the rejection is absorbed here.
-        }).catch(() => {});
+        });
     };
 
     let select = next => {
@@ -164,7 +162,7 @@ export let homeView = ({ sculptor, session, navigate }) => {
     tags.subscribe(snapshot => tagNames.set(snapshot.status === 'success' ? snapshot.data || [] : []));
 
     load();
-    tags.run(({ signal }) => api.tags({ signal }).then(payload => payload.tags)).catch(() => {});
+    tags.run(({ signal }) => api.tags({ signal }).then(payload => payload.tags));
 
     return root;
 };
