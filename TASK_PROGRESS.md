@@ -863,6 +863,136 @@ benchmark harnesses with the note that `benchmark/compare` needs its own
 
 No behaviour changed. Every path linked was checked to exist.
 
+## Adversarial pass over every function and method
+
+`npm run test:edge` (`test/edge-cases.mjs`) is the counterpart to the API audit:
+48 probes that look for defects rather than confirming happy paths. Edge inputs,
+error paths, reentrancy, repeated and out-of-order operations, interactions
+between features, isolation between runtimes, and an ownership churn sweep over
+every construct.
+
+### One real defect found
+
+**`asyncState()` could not be released on its own.** It was the only reactive
+primitive without `dispose()`: signal, computed, effect, store, data, elements,
+scopes and components all have one. Each async state held two runtime ownership
+entries - its backing state signal and its own abort cleanup - and nothing freed
+them until the whole scope was disposed. One created per request or per view in a
+long-lived runtime accumulated with no remedy available to the caller.
+
+The churn sweep is what caught it, and the shape is worth noting: an ownership
+leak raises no error, fails no assertion, and passes every functional test. It
+only shows as growth. The sweep creates and releases each construct 40-200 times
+and requires the runtime's cleanup set to return to its starting size; async
+state was the one entry that grew, at exactly two per cycle.
+
+Fixed by adding `dispose()` and a `disposed` getter, matching every sibling.
+Disposal aborts work in flight and is idempotent. 24 gzipped bytes, 13166 to
+13190 against the 13312 budget.
+
+### A second wave, and a second documentation gap
+
+Seventeen more probes covering what the first wave missed: form binding
+(checkboxes, multiple selects, custom accessors), delegated events, `tree()`
+edge cases, progressive creation, error boundaries, lazy components, deep context
+chains, and nested batching. All pass, and one of them found a trap.
+
+**A custom `get` in a form binding replaces the entire read, so `parse` is never
+applied.** That is coherent — `get` is typed `(element) => T` and already returns
+the signal's type, so running `parse` over it would convert twice — but nothing
+said so, and supplying both silently produced unparsed values. I fell into it
+writing the probe. Also undocumented: `get` and `set` receive the **native node**,
+not the wrapper. Both are now stated in `README.md`, `docs/api.html`, and as
+JSDoc on `FormBindingOptions`.
+
+Not a code change: the behaviour is right, the documentation was missing. Same
+category as the `bindVisible`/`bindHidden` finding, but unlike that one the two
+options are not siblings pretending to be a pair, so aligning them would be
+wrong.
+
+### Waves three to five
+
+Thirty-six more probes: wrapper caching and foreign DOM mutation, `when()` with
+`preserve` and `disposeOnStop`, router parameter decoding and pattern escaping,
+every `scrollVirtualList` alignment, keyed updates while scrolled, per-key store
+signals across delete and re-add, aborted observers, bindings against disposed
+sources, fragment component roots, mount/unmount cycles, scheduler reentrancy,
+lists over containers with foreign children, `aria: false`, style and visibility
+edges, injection surfaces, and scale (5,000 keyed rows reversed, 2,000 signals,
+2,000 levels of nesting).
+
+**No further defects.** Three findings, all documentation:
+
+- **The `*` catch-all is a whole-path wildcard.** A route of `'*'` puts the
+  entire path in `params.rest`, leading slash included; `'/*'` captures only the
+  remainder. Nothing said which, and the two differ.
+- **A custom `get` replaces the whole read**, so `parse` is ignored alongside it,
+  and `get`/`set` receive the native node rather than the wrapper.
+- **`tree()`'s `properties` is a deliberate escape hatch.** It writes native
+  properties verbatim, so `properties: { innerHTML }` parses markup exactly as
+  the DOM would. The README's claim that "raw HTML is never accepted implicitly"
+  is technically accurate - *implicitly* is doing the work - but the boundary was
+  never stated. It is now, along with the warning never to build an attribute
+  *name* from untrusted input.
+
+Confirmed sound rather than assumed: `_elements` is a `WeakMap` and `_wrapNode`
+returns one wrapper per node, so repeated `child.find()` and `wrap()` neither
+allocate nor accumulate. No text path parses markup at any depth, through any
+binding, including keyed lists and reactive text.
+
+### Everything else held
+
+The other 47 probes passed, including the paths most likely to be fragile:
+writing to a signal inside its own subscriber, unsubscribing mid-notification, a
+throwing subscriber not blocking the others, disposing inside a hook, an effect
+that writes what it reads, a throwing render rolling back a keyed list, a
+throwing key function leaving the DOM untouched, a throwing route view, a
+throwing branch factory, prototype-shaped store keys, concurrent async runs
+settling on the newest, appending an element into itself, and two runtimes not
+sharing scheduling or disposal.
+
+### Two false alarms, both mine
+
+The suite reported two failures while being written and neither was a library
+defect. A throwing effect cleanup looked like it stopped the effect rerunning; it
+does not - the cleanup is cleared before it runs, so the next pass executes
+normally and installs a fresh one, and the escape came from an unguarded
+`dispose()`, where surfacing collected failures is the documented contract. The
+second was `s.effect(() => v.get())`: an arrow with an implicit return hands the
+read value back as a "cleanup", which the runtime correctly rejects. Worth
+recording because it is an easy mistake to make twice.
+
+## Property-based fuzzing of the reconciler
+
+`npm run test:fuzz` (`test/fuzz.mjs`) drives random keyed-list operation
+sequences - remove, insert, swap, reverse, shuffle, clear, append, move - and
+checks three properties after **every** step rather than at the end:
+
+1. **Order.** The DOM matches the model exactly.
+2. **Identity.** A key that survives keeps the same node, which is what carries
+   focus, scroll position, and uncontrolled input state through a reorder.
+3. **Minimality.** The number of DOM moves never exceeds the theoretical
+   minimum: the survivors outside the longest increasing subsequence of their
+   previous positions, plus the newly added rows.
+
+The third is the interesting one. It is an independent reimplementation of the
+bound the reconciler is supposed to hit, computed from the model rather than
+from the library, so it checks the LIS reconciler against theory instead of
+against itself.
+
+**Result: 9,600 reconciliations, 12,262 DOM moves against a theoretical minimum
+of 12,262.** Exactly minimal on every step, with no order or identity violation.
+
+**Verified against an injected regression rather than trusted because it
+passes.** Forcing the settled set empty - the pre-LIS behaviour, where every row
+is treated as out of order - makes it fail on the first step of the first
+sequence: `expected <= 1 moves, got 8 moves`. Restoring the reconciler returns it
+to clean.
+
+Each run picks a fresh seed and prints it, so runs explore new sequences while a
+failure stays reproducible with `SEED=<n> npm run test:fuzz`. Defaults are 400
+sequences of 24 steps; `SEQUENCES` and `STEPS` override them.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:

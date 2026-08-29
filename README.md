@@ -531,6 +531,12 @@ argument parses values read from the control. An options object can select an
 event, parser, checkbox-group behavior, multiple selection, or custom native-node
 accessors.
 
+`get` and `set` receive the **native node**, not the wrapper. A custom `get`
+replaces the entire read, so `parse` is not applied on top of it — `get` already
+returns the value the signal should hold. Use `parse` to convert the raw control
+value on the built-in read path, and `get` when you need to read the control
+differently altogether; supplying both means `parse` is ignored.
+
 ```js
 quantity.bind(numberInput, { parse: Number });
 tags.bind(checkbox, { group: true });
@@ -608,6 +614,7 @@ await users.run(({ signal }) =>
 await users.retry();
 users.cancel();
 users.reset();
+users.dispose();   // abort work in flight and release it from its scope
 ```
 
 Snapshots use `idle`, `loading`, `refreshing`, `success`, and `error`.
@@ -825,6 +832,13 @@ button.on('click', () => {
 `tree()` builds a safe, detached DOM hierarchy. Text uses text nodes, including
 reactive text, and raw HTML is never accepted implicitly.
 
+`properties` is the one deliberate exception: it writes native properties
+verbatim, so `properties: { innerHTML: value }` parses markup exactly as the DOM
+would. That is an escape hatch for when you need it, not a text path — never
+pass untrusted input through it, and never build an attribute *name* from
+untrusted input either, since `onclick` and friends are ordinary attribute names
+to the DOM. Everything else in `tree()` writes text nodes.
+
 ```js
 let card = sculptor.tree({
     tag: 'article',
@@ -1035,6 +1049,11 @@ router.replace('/');               // replaceState
 router.current.get();              // { path, route, params }
 router.stop();
 ```
+
+`*` is a whole-path wildcard, so a route of `'*'` puts the entire path in
+`params.rest`, leading slash included. Write `'/*'` when you want the remainder
+after the slash instead. Literal segments are escaped, so `/a.b` matches only
+`/a.b`, never `/axb`.
 
 A route view is any function returning a `DomElement` or a component instance,
 so `sculptor.component()` factories can be used directly. The matched snapshot
@@ -1275,10 +1294,20 @@ Three commands cover verification:
 npm run check         # lint, unit tests, types, build, size budget, package
 npm run test:browser  # the same behaviour in Chromium, Firefox, and WebKit
 npm run test:api      # every public member exercised in a real browser
+npm run test:edge     # error paths, reentrancy, and an ownership churn sweep
+npm run test:fuzz     # random keyed-list sequences checked against a model
 ```
 
 `npm run test:api` also fails when a newly added public member is not exercised
-by any probe, so the audit cannot silently fall behind the API.
+by any probe, so the audit cannot silently fall behind the API. `npm run test:edge`
+churns every construct and fails if the runtime's cleanup set grows, which is the
+only way an ownership leak shows up: it raises no error on its own.
+
+`npm run test:fuzz` drives random keyed-list operation sequences and checks three
+properties after every step: the DOM matches the model, a surviving key keeps its
+node, and the number of DOM moves never exceeds the theoretical minimum. Each run
+picks a fresh seed and prints it, so a failure reproduces with
+`SEED=<n> npm run test:fuzz`.
 
 Maintainers should use the [release checklist](./docs/releasing.md) before
 creating a tag or publishing a package.

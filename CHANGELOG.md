@@ -7,10 +7,21 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `npm run test:fuzz`, property-based fuzzing of the keyed reconciler against a
+  model. Random operation sequences are checked after every step for order,
+  node identity across reorders, and that DOM moves never exceed the theoretical
+  minimum. Runs are seeded and print their seed so a failure is reproducible.
+- `npm run test:edge`, an adversarial suite covering error paths, reentrancy,
+  edge inputs, feature interactions, and an ownership churn sweep that fails if
+  the runtime's cleanup set grows.
 - `npm run test:api`, an audit that exercises every public member of the library
   in real Chromium - what each one does, what it rejects, and what it does after
   disposal - and then enumerates the reachable surface and fails if anything was
   not exercised. 35 probes over 158 members.
+- `dispose()` and a `disposed` getter on `asyncState()`. It was the only reactive
+  primitive that could not be released on its own, so one created per request or
+  per view in a long-lived runtime held two ownership entries each until its
+  whole scope was disposed. Disposal aborts work in flight and is idempotent.
 - Focus handling for virtual lists, completing the version-one scope. A row
   containing the focused element stays mounted after scrolling takes it outside
   the visible range, positioned out of the row flow so the visible rows stay
@@ -129,6 +140,15 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Documented that `tree()`'s `properties` writes native properties verbatim and
+  can therefore reach `innerHTML`, making it a deliberate escape hatch rather
+  than a text path, and that an attribute name must never be built from
+  untrusted input.
+- Documented that the router's `*` catch-all is a whole-path wildcard: `'*'`
+  captures the path with its leading slash, `'/*'` captures only the remainder.
+- Documented that a custom `get` in a form binding replaces the entire read, so
+  `parse` is not applied on top of it, and that `get`/`set` receive the native
+  node rather than the wrapper. Supplying both silently ignored `parse` before.
 - Documented that automatic dependency tracking is synchronous: a signal read
   after an `await` inside a computed value or effect is not discovered, because
   the collector is installed only for the synchronous run. This matches Solid and

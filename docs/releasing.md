@@ -11,6 +11,10 @@ Use this checklist from a clean working tree on the intended release commit.
 - Run `npm run test:browser` and require Chromium, Firefox, and WebKit to pass.
 - Run `npm run test:api` and require every reachable public member to be
   exercised with no failures.
+- Run `npm run test:edge` and require every probe to pass, including the
+  ownership churn sweep.
+- Run `npm run test:fuzz` and require no counterexample. Record the seed it
+  prints, so a later failure can be compared against a known-good run.
 - Run `npm run benchmark` and record the runtime, browser, medians, variance,
   memory result, and compressed bundle sizes.
 - Run `npm pack --dry-run --json` and inspect every published path.

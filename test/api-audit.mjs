@@ -620,8 +620,8 @@ try {
         });
 
         // ---- AsyncState ----------------------------------------------------
-        await check('AsyncState', 'run, retry, cancel, reset, get, subscribe', [
-            'run', 'retry', 'cancel', 'reset', 'get', 'subscribe'
+        await check('AsyncState', 'run, retry, cancel, reset, get, subscribe, dispose', [
+            'run', 'retry', 'cancel', 'reset', 'get', 'subscribe', 'dispose', 'disposed'
         ], async () => {
             let sculptor = new DomSculptor();
             let attempts = 0;
@@ -642,6 +642,10 @@ try {
             state.reset();
             eq(state.get().status, 'idle', 'reset');
             ok(statuses.includes('loading'), 'loading was reported');
+            eq(state.disposed, false, 'disposed getter');
+            state.dispose();
+            eq(state.disposed, true, 'dispose');
+            throws(() => state.run(() => Promise.resolve(1)), 'a disposed async state must refuse work');
             sculptor.dispose();
         });
 

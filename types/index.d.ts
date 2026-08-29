@@ -152,8 +152,11 @@ export class DomElement<T extends Node = HTMLElement> {
 
 export interface FormBindingOptions<T, E extends Node = HTMLElement> {
     event?: string;
+    /** Converts the raw control value. Ignored when `get` is supplied. */
     parse?: (value: unknown, element: E) => T;
+    /** Replaces the entire read, including `parse`. Receives the native node. */
     get?: (element: E) => T;
+    /** Replaces the entire write. Receives the native node. */
     set?: (element: E, value: T) => void;
     group?: boolean;
     multiple?: boolean;
@@ -204,6 +207,8 @@ export interface AsyncState<T> extends Readable<AsyncSnapshot<T>> {
     retry(): Promise<AsyncSnapshot<T>>;
     cancel(): void;
     reset(): void;
+    dispose(): void;
+    readonly disposed: boolean;
 }
 
 export interface DataStore<T extends Record<string, unknown>> {

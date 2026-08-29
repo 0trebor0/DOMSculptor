@@ -2471,18 +2471,30 @@ class DomSculptor {
                 controller?.abort();
                 controller = null;
                 state.set({ status: 'idle', data: initialData, error: null });
+            },
+            // Every other reactive primitive can be released on its own; without
+            // this an async state could only be freed by disposing its whole scope,
+            // so one created per request in a long-lived runtime accumulated.
+            dispose() {
+                if (state.disposed) return;
+                release();
+                releaseOwnership?.();
+            },
+            get disposed() {
+                return state.disposed;
             }
         };
 
-        this._track(() => {
-            // Aborting matters on disposal; announcing it does not. cancel() writes a
-            // final snapshot, which notifies subscribers whose elements the same
-            // disposal has already removed, and writing to those throws.
+        // Aborting matters on disposal; announcing it does not. cancel() writes a
+        // final snapshot, which notifies subscribers whose elements the same
+        // disposal has already removed, and writing to those throws.
+        let release = () => {
             runId++;
             controller?.abort();
             controller = null;
             state.dispose();
-        });
+        };
+        let releaseOwnership = this._track(release);
         return api;
     }
 

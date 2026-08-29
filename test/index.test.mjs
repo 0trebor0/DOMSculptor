@@ -1196,6 +1196,39 @@ test('disposing async state aborts its work without announcing it', async () => 
     assert.throws(() => state.run(() => Promise.resolve(1)).catch(() => {}), /disposed/);
 });
 
+test('async state can be released on its own', async () => {
+    let sculptor = new DomSculptor();
+    let baseline = sculptor._rootScope._cleanups.size;
+    let aborted = false;
+
+    let state = sculptor.asyncState(null);
+    assert.equal(state.disposed, false);
+    state.run(({ signal }) => new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => {
+            aborted = true;
+            reject(new DOMException('Aborted', 'AbortError'));
+        });
+    })).catch(() => {});
+    await Promise.resolve();
+
+    state.dispose();
+    assert.equal(state.disposed, true);
+    assert.equal(aborted, true, 'disposal must abort work in flight');
+    state.dispose();
+
+    // Every other reactive primitive releases its runtime entry when disposed;
+    // without this an async state could only be freed with its whole scope.
+    assert.equal(sculptor._rootScope._cleanups.size, baseline,
+        'disposal did not release the runtime ownership entries');
+
+    let churned = sculptor.asyncState(null);
+    churned.dispose();
+    for (let round = 0; round < 200; round++) sculptor.asyncState(null).dispose();
+    assert.equal(sculptor._rootScope._cleanups.size, baseline, 'repeated use accumulated entries');
+    assert.throws(() => churned.run(() => Promise.resolve(1)), /disposed/);
+    sculptor.dispose();
+});
+
 test('async state reports loading, success, errors, and retries', async () => {
     let asyncState = new DomSculptor().asyncState('initial');
     let statuses = [];
