@@ -35,10 +35,15 @@ ships in the core bundle regardless, so both features were added as
 
 5. Declaration drift guard -- DONE.
 6. Publish results on js-framework-benchmark against React, Preact, Solid, Vue.
-   NOT STARTED, but its prerequisite is done: the benchmark's run-order noise is
-   fixed, so its numbers are now reproducible.
+   The measurable half is DONE: the benchmark entry exists and is verified, and a
+   local head-to-head comparison against all four frameworks runs in this
+   repository. Submitting the entry upstream remains, and is a pull request to
+   someone else's repository rather than code here.
 7. Build the RealWorld reference app to surface ergonomic friction.
-8. Fill `docs-site/`, which is currently an empty directory.
+8. Fill `docs-site/`. **Withdrawn - the premise was wrong.** No `docs-site/`
+   directory exists; `docs/` holds `index`, `api`, `examples`, `recipes`,
+   `large-projects`, and `releasing`, about 54 KB in total, and
+   `test/docs.test.mjs` checks it against the runtime.
 
 **Explicitly out of scope:** SSR/hydration (largest effort, competes with
 Next.js on its strongest ground) and a component library (follows adoption
@@ -46,9 +51,10 @@ rather than causing it).
 
 ## Status
 
-Tiers 1 and 2 complete and verified. Tier 3 item 5 complete, and the
-measurement prerequisite for item 6 is done. Items 6 (publishing benchmark
-comparisons), 7 (RealWorld app), and 8 (docs site) remain.
+Tiers 1 and 2 complete and verified. Tier 3 item 5 complete. Item 6's
+measurement work is complete and produced a real performance fix; only the
+upstream pull request remains. Item 7 (RealWorld app) remains. Item 8 was
+withdrawn as based on a false premise.
 
 ## Phase 1 summary (completed earlier)
 
@@ -304,6 +310,196 @@ anyone else's. `runCreate()` (the two create-100 cases) still runs its samples
 consecutively and was left alone, since those cases are frame-bound rather than
 CPU-bound.
 
+## Tier 3 item 6 - framework comparison
+
+Two things were built, both under `benchmark/`.
+
+**`js-framework-benchmark/`** is the keyed entry, in the layout the upstream
+repository expects: `index.html` with the six control buttons and `#tbody`,
+`src/main.js`, a webpack config, and a `package.json` declaring `build-prod`.
+`benchmark/jsfb-verify.mjs` builds it against the working tree rather than the
+published package, serves it, and drives every button plus selection and removal
+in headless Chromium - 20 assertions covering the row markup, the class names the
+harness's CSS selectors depend on, and the outcome of each operation. Copying the
+directory into `frameworks/keyed/domsculptor` and opening the pull request is
+what remains, and is the user's call.
+
+**`compare/`** is a head-to-head harness running DOMSculptor, React, Preact,
+Solid, and Vue in one page, so the numbers come from one browser process instead
+of five separate runs. Its dependencies live in its own `package.json`, so the
+library's own dev dependencies stay as they were. Method:
+
+- Labels come from a seeded generator, so every framework renders identical
+  strings on every run.
+- **Every implementation is verified before anything is timed.** Each is driven
+  through all eight operations and its DOM checked against the specification. A
+  disagreement fails the run rather than producing fast numbers for a table that
+  was never built correctly.
+- Frameworks and cases are interleaved per sample, applying the same lesson that
+  fixed this project's own benchmark: running a case's samples consecutively lets
+  warm-up and collection timing move medians by milliseconds between invocations.
+- The clock stops after a layout property is read, so each framework pays for the
+  layout its own writes made necessary.
+- Each framework commits before the clock stops: DOMSculptor flushes its
+  scheduler, React uses `flushSync`, Vue awaits `nextTick`, Preact renders from
+  the top, Solid is synchronous.
+
+Each framework is written the way its own community writes this benchmark:
+DOMSculptor a keyed `list()`, React `useState` with a `memo`'d row, Preact a
+top-level `render()`, Solid `createStore` with `<For>` updating labels in place,
+Vue a `ref` with a render function.
+
+### What it found
+
+The first run showed two cases where DOMSculptor was far off the field:
+`swap-rows` at 32.4 ms against Solid's 3.7 ms, and `clear-1000` at 13.6 ms
+against 3.2 ms. Both were real, and both were in the keyed list path.
+
+**Quadratic ownership bookkeeping.** `_detachFromParent()` rebuilds its parent's
+child array with `filter`, and the keyed render called it once per row while also
+calling `_notifyMount()` on every row and its four cells. On a thousand-row list
+that is a million comparisons and a thousand array allocations per pass, and the
+result was discarded a moment later because the render assigns
+`container._children` wholesale anyway. The container's child list is now emptied
+once before the pass, and a row the container already owns and has already
+mounted is skipped.
+
+**Placement by index.** Each row was inserted before
+`container.html.childNodes[index]`. That is correct but it is not minimal:
+swapping rows 1 and 998 moves row 998 into place and then pushes row 1 down past
+every row between them - 998 DOM moves for a two-row swap. Rows whose relative
+order has not changed form a longest increasing subsequence of their previous
+positions; keeping those in place and re-inserting only the rest is the minimum.
+`longestIncreasingRun()` computes it, and placement runs right to left so the
+node each row is inserted before is already final.
+
+Neither change alters observable behaviour, and both are covered by a new test
+that counts `insertBefore` calls: a two-row swap costs 2 moves, restoring the
+order costs 2, appending two rows costs 2, removing a middle row costs 0, and
+prepending costs 1. Before the change the swap cost 9 moves on a ten-row list and
+would have cost 998 on a thousand-row one.
+
+### Results
+
+Medians of 25 samples after 5 warm-up rounds, headless Chromium, two runs
+agreeing to within a few tenths except `create-10000`, which varies by about 8%
+run to run:
+
+| case | DOMSculptor | React | Preact | Solid | Vue |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| create-1000 | 33.4 | 32.3 | 34.6 | 27.2 | 29.9 |
+| create-10000 | 443.2 | 503.3 | 366.9 | 309.7 | 335.7 |
+| append-1000 | 41.3 | 37.6 | 42.0 | 32.4 | 36.8 |
+| update-every-10th | 7.3 | 7.7 | 11.8 | 7.7 | 10.1 |
+| swap-rows | 2.6 | 29.2 | 5.9 | 3.4 | 5.7 |
+| select-row | 0.0 | 0.6 | 3.9 | 0.7 | 3.2 |
+| remove-row | 2.5 | 2.6 | 6.4 | 3.2 | 5.6 |
+| clear-1000 | 11.3 | 5.4 | 3.6 | 3.1 | 4.1 |
+
+Reading it honestly: DOMSculptor is now competitive on every case except
+`clear-1000`, where it is roughly three times slower than the others, and it is
+mid-field rather than leading on the create and append cases, where Solid is
+consistently fastest. `select-row` is not like-for-like - DOMSculptor and Solid
+change one row without re-running the list, while React, Preact, and Vue
+re-render and diff - and the table should not be published without that caveat.
+
+These are this harness's numbers, not the upstream benchmark's, and should be
+described that way. The upstream figures are the ones worth publishing, and they
+require the pull request.
+
+### Effect on the project's own benchmark
+
+The same fixes moved every list case in `npm run benchmark`:
+
+| case | before | after |
+| --- | ---: | ---: |
+| append-one | 2.8 | 1.2 |
+| prepend-one | 2.7 | 1.2 |
+| remove-middle | 2.7 | 1.1 |
+| swap-two | 3.8 | 1.1 |
+
+**Cost:** 191 gzipped bytes, 12377 to 12568 against the 13312 budget. No budget
+change was needed.
+
+### Verification
+
+- `npm run check` - passed. `# tests 130 # pass 130 # fail 0`; the 129
+  pre-existing tests passed unchanged before the move-count test was added.
+- `npm run test:browser` - chromium 124, firefox 123, webkit 123 assertions
+  passed.
+- `node benchmark/jsfb-verify.mjs` - 20 checks passed against the real DOM.
+- `node benchmark/compare/run.mjs` - all five implementations verified, run
+  twice with agreeing medians.
+- `npm run benchmark` - every list case improved; nothing regressed.
+- `npm pack --dry-run` - 25 files, 90.9 kB. `benchmark/compare` and the built
+  bundles are excluded through negated entries in `files`, because a root
+  `.npmignore` is not consulted once `files` is present. Without that the tarball
+  was 12.6 MB and 5,808 files.
+
+## Follow-up from item 6 - the two gaps it left
+
+### The convenience exports did not track
+
+`computed` and `effect` exist twice: as `DomSculptor` methods and as standalone
+exports bound to a shared default runtime. Tier 1 item 1 changed the methods'
+default from `[]` to `null`, but the two wrappers at the bottom of `src/index.js`
+kept `[]`. So `import { computed } from 'domsculptor'` returned a value that
+never re-ran, which is the opposite of what `README.md`, `docs/api.html`, and the
+changelog entry all describe. No other wrapper had drifted.
+
+Both defaults are now `null`. A test exercises the standalone exports directly -
+the existing tracking tests all went through an instance, which is why this
+survived - and it was **verified against the bug**: restoring `[]` makes it fail,
+and putting `null` back returns the suite to green.
+
+### Disposal was removing nodes one at a time, on the document
+
+CPU-profiling a thousand-row clear through the Chrome DevTools Protocol
+attributed the cost, rather than leaving it to guesswork: `removeChild` 12.7%,
+`_cleanupKnownNode` 11.9%, `dispose` 8.6%, `_clearChildren` 7.3%.
+
+`dispose()` removed its own node from the document **last**, after
+`_clearChildren()` had already disposed the whole subtree. Every one of the eight
+thousand descendants therefore removed itself from a still-attached tree, paying
+the engine's layout and style invalidation each time, and then the ancestor was
+removed anyway. Detaching the node first makes all of that work happen off the
+document. `_cleanupKnownNode` also called `Array.from(node.childNodes)` on text
+nodes, which are the common case and have no children to walk; it now returns
+early.
+
+Clearing a thousand rows of eight elements went from 14.4 ms to 9.0 ms in
+isolation, and `clear-1000` in the comparison from 11.3 ms to 9.5 ms.
+`_cleanupKnownNode` left the profile entirely. Cost: 4 gzipped bytes.
+
+**This changes observable behaviour**, so it is recorded under Changed and
+pinned by a test: `onRemove` and `onDispose` hooks now see a node whose
+`parentNode` is `null`, where they previously saw it still attached. Hook order
+is unchanged - deepest descendant first.
+
+### Where the project's own benchmark ended up
+
+Both changes together, against the medians recorded before this session:
+
+| case | before | after |
+| --- | ---: | ---: |
+| append-one | 2.8 | 0.7 |
+| prepend-one | 2.7 | 0.8 |
+| remove-middle | 2.7 | 0.8 |
+| swap-two | 3.8 | 0.7 |
+| update-every-tenth | - | 0.8 |
+| clear-all | - | 0.6 |
+
+### What is left in `clear-1000`
+
+9.5 ms against Solid's 3.3 ms. The remainder is not a defect to fix but the
+shape of the library: disposing a row disposes eight `DomElement` wrappers, and
+each releases an ownership entry from its scope's `Set`, an entry from the
+runtime's element `Map`, an entry from the static owner `WeakMap`, its listener
+record, and its dispose callbacks. Solid and Preact create no wrapper object per
+element and so have nothing to release. Closing the rest of that gap means
+changing what a `DomElement` costs, not tuning the disposal path, and that is a
+larger decision than this work should make on its own.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:
@@ -368,4 +564,12 @@ releasing ownership entries so they cannot accumulate.
 - `when()` still registers its stop function with the owning scope without
   untracking it when stopped early. One entry per conditional region, so churn
   is bounded in practice; left unchanged to keep this change scoped.
+- `clear-1000` remains the one case where DOMSculptor is behind the field, at
+  9.5 ms against 3.3-6.2 ms after the disposal fix. The residue is the per-element
+  cost of the ownership model rather than a defect in the disposal path; see the
+  follow-up section for the profile and the reasoning.
+- The comparison harness pulls React, Preact, Solid, Vue, and a Babel toolchain
+  into `benchmark/compare/node_modules`. They are confined to that directory's
+  own `package.json`, ignored by git, and excluded from the npm tarball, so the
+  library itself stays dependency-free.
 - Nothing is committed; all changes remain in the working tree.
