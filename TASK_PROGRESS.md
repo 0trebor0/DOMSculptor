@@ -617,10 +617,35 @@ order is swapped back.
 Line count went from 1,438 to 1,492: declarative configuration is slightly longer
 than the imperative appends it replaced, and all the wiring is gone.
 
-### What was not fixed, and why
+### The last two, done on request
 
-Both of these are breaking changes to documented behaviour, which is why they
-stayed.
+Both were left alone at first because they are breaking changes to documented
+behaviour. Asked to fix everything, both are now done, and the package needs a
+major version as a result.
+
+- **`child.append()` and `prepend()` return the element that was added.** A
+  structure can now be built downwards without a temporary per level. A raw node
+  or string still returns the container, because there is no wrapper to return.
+  Only two call sites in the whole repository chained on the old return value out
+  of 93, and both were clearer rewritten.
+- **`asyncState.run()` and `retry()` resolve with the snapshot and never reject.**
+  The snapshot is what callers render, so the rejection was redundant with it.
+  The three `.catch(() => {})` calls in the example are gone; the fourth was a
+  plain `fetch` guard and stays.
+
+Every documentation site that taught the old contracts was updated - `README.md`,
+`docs/api.html`, `docs/index.html`, `docs/recipes.html`, `docs/examples.html` -
+and `docs/index.html` gained a "Coming from 2.0" migration list covering these
+two plus the dependency-less `computed`/`effect` change and the dispose-hook
+timing change from earlier in this session.
+
+**The version was not bumped.** Releasing is a separate decision;
+`test/package.test.mjs` still pins 2.0.0, and the changelog now says plainly that
+this needs a major version.
+
+### What was not fixed, and why (superseded)
+
+The reasoning that kept these two out at first:
 
 - **`child.append()` returns the parent.** Changing it would break every chained
   call in every program using the library, to trade one inconvenience for
@@ -702,9 +727,20 @@ releasing ownership entries so they cannot accumulate.
   untracking it when stopped early. One entry per conditional region, so churn
   is bounded in practice; left unchanged to keep this change scoped.
 - `clear-1000` remains the one case where DOMSculptor is behind the field, at
-  9.5 ms against 3.3-6.2 ms after the disposal fix. The residue is the per-element
-  cost of the ownership model rather than a defect in the disposal path; see the
-  follow-up section for the profile and the reasoning.
+  9.6 ms against 3.2-5.4 ms after the disposal fix. **Attempted again and
+  abandoned on the measurement.** Skipping the empty-children allocation for leaf
+  elements and replacing the per-node `removeChild` loop with a single
+  `textContent` write cost 9 gzipped bytes and moved the median from 9.4 ms to
+  9.6 ms - inside the noise - so it was reverted rather than kept for the look of
+  it. The earlier CPU profile already said why: after the detach-first fix the
+  remaining time is wrapper construction and teardown plus garbage collection,
+  not the clearing path. Disposing a thousand benchmark rows disposes about eight
+  thousand `DomElement` wrappers, each releasing a scope `Set` entry, a runtime
+  `Map` entry, a static `WeakMap` entry, its listener record, and its dispose
+  callbacks. Solid and Preact allocate no wrapper per element and so have nothing
+  to release. Closing the rest of this gap means changing what a `DomElement`
+  costs, which is a redesign of the library's central abstraction and its public
+  API, not a fix.
 - The comparison harness pulls React, Preact, Solid, Vue, and a Babel toolchain
   into `benchmark/compare/node_modules`. They are confined to that directory's
   own `package.json`, ignored by git, and excluded from the npm tarball, so the

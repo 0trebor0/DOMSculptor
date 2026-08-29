@@ -64,6 +64,20 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **This release is breaking and needs a major version.** `child.append()`'s
+  return value, `asyncState.run()`'s contract, dependency-less `computed()` and
+  `effect()`, and the timing of dispose hooks all changed. The migration guide in
+  `docs/index.html` lists them.
+- `child.append()` and `child.prepend()` return the element that was added rather
+  than the container, so a structure can be built downwards without a temporary
+  variable for every level. Appending a raw node or a string still returns the
+  container, since there is no wrapper to return. Code that chained a second
+  `append` onto the first was adding a sibling and now adds a descendant.
+- `asyncState.run()` and `retry()` resolve with the resulting snapshot and never
+  reject. The snapshot is what callers render, so a rejection was always
+  redundant with it and forced an empty `catch` at every call site; a failed or
+  aborted run now needs no handler of its own. They previously resolved with the
+  task's data and rejected on failure or abort.
 - Keyed lists reorder with the minimum number of DOM moves. Rows whose relative
   order is unchanged now stay where they are, and only the rows that actually
   moved are re-inserted; previously each row was placed by its index, so a single
