@@ -1368,17 +1368,30 @@ class DomSculptor {
 
         let current = this.signal(match(readPath()));
         let active = null;
+        let activeScope = null;
         let stopped = false;
-        let render = () => {
-            if (stopped) return;
+        let leave = () => {
             if (active) {
                 active.dispose();
                 active = null;
             }
+            // A view's signals, computed values, and effects belong to the route,
+            // not to the runtime. Without a scope of its own a view that returns a
+            // plain element leaves them owned by the root scope, where nothing
+            // releases them and every navigation adds more.
+            if (activeScope) {
+                activeScope.dispose();
+                activeScope = null;
+            }
+        };
+        let render = () => {
+            if (stopped) return;
+            leave();
             let snapshot = current.get();
             let route = compiled.find(entry => entry.pattern === snapshot.route);
             if (!route) return;
-            active = route.view(snapshot);
+            activeScope = this.createScope();
+            active = activeScope.run(() => route.view(snapshot));
             if (active) this.mount(active, parentElement);
         };
         let apply = path => {
@@ -1407,10 +1420,7 @@ class DomSculptor {
             window.removeEventListener(event, onLocationChange);
             this._scheduledJobs.delete(render);
             unsubscribe();
-            if (active) {
-                active.dispose();
-                active = null;
-            }
+            leave();
             current.dispose();
         };
         let untrack = this._track(stop);
@@ -2301,7 +2311,12 @@ class DomSculptor {
         };
 
         this._track(() => {
-            if (!state.disposed) api.cancel();
+            // Aborting matters on disposal; announcing it does not. cancel() writes a
+            // final snapshot, which notifies subscribers whose elements the same
+            // disposal has already removed, and writing to those throws.
+            runId++;
+            controller?.abort();
+            controller = null;
             state.dispose();
         });
         return api;

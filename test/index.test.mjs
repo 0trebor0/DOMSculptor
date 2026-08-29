@@ -1166,6 +1166,36 @@ test('data stores created in a scope are disposed with the scope', () => {
     assert.equal(store.disposed, true);
 });
 
+test('disposing async state aborts its work without announcing it', async () => {
+    let sculptor = new DomSculptor();
+    let scope = sculptor.createScope();
+    let seen = [];
+    let aborted = false;
+    let state;
+    scope.run(() => {
+        state = sculptor.asyncState(null);
+        state.subscribe(snapshot => seen.push(snapshot.status));
+    });
+
+    state.run(({ signal }) => new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => {
+            aborted = true;
+            reject(new DOMException('Aborted', 'AbortError'));
+        });
+    })).catch(() => {});
+    await Promise.resolve();
+    assert.deepEqual(seen, ['loading']);
+
+    // Cancelling on disposal used to write a final snapshot, which notified
+    // subscribers whose elements the same disposal had already removed, and
+    // writing to a disposed element throws.
+    let before = seen.length;
+    assert.doesNotThrow(() => scope.dispose());
+    assert.equal(aborted, true);
+    assert.equal(seen.length, before);
+    assert.throws(() => state.run(() => Promise.resolve(1)).catch(() => {}), /disposed/);
+});
+
 test('async state reports loading, success, errors, and retries', async () => {
     let asyncState = new DomSculptor().asyncState('initial');
     let statuses = [];
@@ -2588,6 +2618,62 @@ test('the router disposes the view it replaces and cleans up when stopped', () =
         router.stop();
         assert.deepEqual(disposals, ['home', 'about']);
         sculptor.dispose();
+    });
+});
+
+test('a router view owns the signals it creates and releases them on navigation', () => {
+    withFakeHistory('/', () => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        // A view that returns a plain element has no scope of its own unless the
+        // router gives it one, and without that its signals stay owned by the
+        // runtime, where nothing releases them and every navigation adds more.
+        let view = label => () => {
+            let text = sculptor.signal(label);
+            let doubled = sculptor.computed(() => `${text.get()}!`);
+            let element = sculptor.createDetached('p');
+            element.text(doubled);
+            return element;
+        };
+        let router = sculptor.router({ '/': view('home'), '/about': view('about') }, { parent: host });
+
+        // Route changes are scheduled, so each one is flushed: without this the
+        // whole loop coalesces into a single render and creates one view.
+        router.navigate('/about');
+        sculptor.flush();
+        let baseline = sculptor._rootScope._cleanups.size;
+        for (let round = 0; round < 20; round++) {
+            router.navigate('/');
+            sculptor.flush();
+            router.navigate('/about');
+            sculptor.flush();
+        }
+        router.navigate('/');
+        sculptor.flush();
+        assert.equal(sculptor._rootScope._cleanups.size, baseline);
+        assert.equal(host.html.childNodes.length, 1);
+        assert.equal(host.html.firstChild.textContent, 'home!');
+
+        router.stop();
+        assert.equal(host.html.childNodes.length, 0);
+    });
+});
+
+test('stopping a router releases the view it was showing', () => {
+    withFakeHistory('/', () => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let inner;
+        let router = sculptor.router({
+            '/': () => {
+                inner = sculptor.signal(1);
+                return sculptor.createDetached('p');
+            }
+        }, { parent: host });
+
+        assert.equal(inner.disposed, false);
+        router.stop();
+        assert.equal(inner.disposed, true);
     });
 });
 
