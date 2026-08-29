@@ -7,6 +7,17 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Named nodes in `tree()`. Pass a `refs` object at the root and a `ref` name on
+  any node, and the tree fills it in as it builds, instead of reaching back into
+  a tree with a CSS selector that can match the wrong node first.
+- Reactive `attributes`, `class`, and `children` in `tree()`. Attribute values
+  may be signals, `class` accepts a map of class names to signals or booleans,
+  and `children` accepts `{ each, key?, render, update? }` in place of an array,
+  which renders the container's contents as a keyed list.
+- `classToggle()` accepts a map of class names, so a two-state pair is one call,
+  and takes plain booleans as well as signals.
+- Route views receive the scope the router created for them on their snapshot,
+  so an asynchronous continuation can check `scope.disposed` before writing.
 - `example/realworld`, a complete RealWorld reference client - feeds, tags,
   pagination, articles, comments, favouriting, following, profiles, the editor,
   and settings - with no build step, plus a 25-check headless verification of its
@@ -72,13 +83,19 @@ uses [Semantic Versioning](https://semver.org/).
   previously saw it still attached.
 - The gzip budget enforced by `npm run size` moved from 10 KB to 13 KB to make
   room for automatic dependency tracking, runtime ownership, routing, and
-  virtualization. The build currently measures 12596 bytes.
+  virtualization. The build currently measures 12848 bytes.
 - `computed(fn)` and `effect(fn)` called without a dependency list previously
   never re-ran; they now track their reads. Calls that pass a dependency list
   are unaffected. Pass an empty list to keep the evaluate-once behavior.
 
 ### Fixed
 
+- A subscription created with `signal.subscribe()` inside a scope now belongs to
+  that scope and is released with it. Element bindings already released
+  themselves with their element, but a bare subscribe had no owner at all, which
+  left it as the one thing still needing manual cleanup after the runtime
+  ownership work. Outside a scope nothing changes: the caller still owns the
+  returned unsubscribe function.
 - `router()` now runs each view inside a scope of its own and disposes it on the
   way out. A view returning a plain element previously had no scope, so the
   signals, computed values, and effects it created stayed owned by the runtime

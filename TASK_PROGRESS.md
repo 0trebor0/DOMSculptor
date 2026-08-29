@@ -564,8 +564,61 @@ Recorded in full in `example/realworld/README.md`, with counts over the app:
    leaked one inside a re-render and had to restructure the view. **After the
    tier 1 item 2 ownership work, this is the one place where disposal is still a
    discipline rather than a default**, and it is the finding most worth acting on.
+   Fixed; see the section below.
 8. There is no way to ask whether the current scope is alive, so five async
    continuations guard on `root.html` instead.
+
+## Acting on what the RealWorld app found
+
+Seven of the eight friction points are now fixed in the library, and the example
+was rewritten onto the new APIs to prove it rather than to assert it.
+
+### What changed
+
+- **Subscriptions have an owner.** `signal.subscribe()` inside a scope registers
+  its unsubscribe with that scope. This was the finding most worth acting on: it
+  was the last place where disposal was a discipline rather than a default.
+  Outside a scope nothing changes.
+- **`tree()` names nodes.** A `refs` object at the root and `ref` on any node.
+- **`tree()` takes reactive attributes, classes, and children.** Attribute values
+  may be signals; `class` accepts a map of names to signals or booleans;
+  `children` accepts `{ each, key?, render, update? }`.
+- **`classToggle()` accepts a map** and plain booleans.
+- **Route views receive their scope** on the snapshot, so an asynchronous
+  continuation can check `scope.disposed`.
+
+### Measured on the example, before and after
+
+| | before | after |
+| --- | ---: | ---: |
+| `child.find()` calls | 25 | 2 |
+| post-hoc `.classToggle()` / `.attr()` | 13 | 2 |
+| `classToggle()` calls | 10 | 2 |
+| element liveness guards | 5 | 3 |
+
+The two remaining `child.find()` calls are both inside a keyed list's `update`,
+where the row is handed to you and there is no tree to have named it. The three
+remaining element guards are in code that is not a route view, so no scope is
+handed to it. Line count went from 1,438 to 1,481: declarative configuration is
+slightly longer than the imperative appends it replaced, and all the wiring is
+gone.
+
+### What was not fixed, and why
+
+- **`child.append()` returns the parent.** Changing it would break every chained
+  call in every program using the library, to trade one inconvenience for
+  another. Left alone deliberately.
+- **`asyncState.run()` both rejects and records.** Four `.catch(() => {})` calls
+  remain. The rejection is documented behaviour that callers awaiting `run()`
+  depend on; removing it is a breaking change and the redundancy only shows up
+  when the snapshot is what renders.
+
+### Cost and verification
+
+252 gzipped bytes, 12596 to 12848 against the 13312 budget. `npm run check`
+passes at 142 tests, the browser matrix at 124/123/123, both benchmark harnesses
+show no regression, and the example's 25 checks pass against the live API after
+the rewrite.
 
 ## Size budget decision
 
