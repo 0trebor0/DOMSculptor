@@ -7,6 +7,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `npm run test:api`, an audit that exercises every public member of the library
+  in real Chromium - what each one does, what it rejects, and what it does after
+  disposal - and then enumerates the reachable surface and fails if anything was
+  not exercised. 35 probes over 158 members.
 - Named nodes in `tree()`. Pass a `refs` object at the root and a `ref` name on
   any node, and the tree fills it in as it builds, instead of reaching back into
   a tree with a CSS selector that can match the wrong node first.
@@ -107,6 +111,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Documented that `bindVisible()` and `bindHidden()` work differently despite
+  taking the same shape: the first toggles inline `display` through `show()` and
+  `hide()`, the second sets the native `hidden` property and leaves inline styles
+  alone. Nothing said so before.
 - A subscription created with `signal.subscribe()` inside a scope now belongs to
   that scope and is released with it. Element bindings already released
   themselves with their element, but a bare subscribe had no owner at all, which

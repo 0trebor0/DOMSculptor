@@ -721,6 +721,49 @@ dispose callbacks - which Solid and Preact do not pay because they allocate no
 wrapper per element. Closing that means redesigning the library's central
 abstraction, not tuning this path.
 
+## Full audit of every public method and function
+
+`npm run test:api` (`test/api-audit.mjs`) exercises the whole surface in real
+Chromium: 35 probes over **158 public members**, all of them. It ends by
+enumerating what is reachable and failing on anything no probe touched, so a
+member added later cannot go unexercised silently.
+
+What it covers: the 20 module exports and the shared default runtime; all 35
+`DomSculptor` methods including the router and the five virtual-list functions;
+all 32 `DomElement` methods and the `attribute`, `class`, and `child` namespaces;
+all 17 signal bindings; `Computed`, `AsyncState`, `DataStore`, `DisposalScope`,
+`Context`, and `ComponentInstance`; the development runtime, the test harness,
+and lazy components. Plus five probes that are not about the happy path:
+argument validation across 18 entry points, cycle detection, that disposed
+elements, signals, stores, and scopes refuse work rather than dereferencing null,
+that a keyed list rejects duplicate keys without touching the DOM, and that no
+API parses markup out of a string.
+
+**No defects found.** Every member behaves as its type declaration and the
+documentation say it does.
+
+The audit failed four times while being written, and all four were the probe
+misreading the API, which is the more interesting result:
+
+| I assumed | It actually does | Verdict |
+| --- | --- | --- |
+| `tryMount` returns `false` on failure | returns `null`, exactly as `types/index.d.ts` declares | probe wrong |
+| `bindValue` is two-way | one-way; `sync()` is the two-way binding, and the README says so | probe wrong |
+| `store.update(fn)` takes a whole-store updater | takes `(key, updater)`, as declared | probe wrong |
+| the test harness has `cleanup()` | has `dispose()`, plus `assertClean()` and `warnings` | probe wrong |
+
+Four chances for the runtime to disagree with its own declarations, and it
+disagreed none of them. That is what the tier 3 item 5 drift guard is for, and
+this is independent evidence it is holding.
+
+**One real finding, a documentation gap.** `bindVisible()` and `bindHidden()`
+have the same signature and the same declared type but different mechanisms:
+`bindVisible()` toggles inline `display` through `show()`/`hide()`, so it
+restores whatever display value the element had, while `bindHidden()` sets the
+native `hidden` property and leaves inline styles alone. Nothing in `README.md`
+or `docs/api.html` said so; a reader picking between them by name would have no
+way to know. Both are now documented.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:
