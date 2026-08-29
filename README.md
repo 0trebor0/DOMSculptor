@@ -966,6 +966,10 @@ is passed in, making `params` available as component props.
 
 Each view runs inside a scope of its own, so the signals, computed values,
 effects, and subscriptions it creates are released when the route changes. That
+scope is disposed before the view's elements, and a scope disposes in reverse
+order of creation, so a subscription made after the element it writes into is
+released before that element is torn down. Create the element, then subscribe,
+and the callback cannot outlive what it renders into. That
 scope is on the snapshot, which gives an asynchronous continuation a way to ask
 whether its route is still on screen:
 

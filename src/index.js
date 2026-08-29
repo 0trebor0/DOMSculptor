@@ -1412,17 +1412,23 @@ class DomSculptor {
         let activeScope = null;
         let stopped = false;
         let leave = () => {
-            if (active) {
-                active.dispose();
-                active = null;
-            }
-            // A view's signals, computed values, and effects belong to the route,
-            // not to the runtime. Without a scope of its own a view that returns a
-            // plain element leaves them owned by the root scope, where nothing
-            // releases them and every navigation adds more.
+            // A view's signals, computed values, effects, and subscriptions belong
+            // to the route, not to the runtime. Without a scope of its own a view
+            // that returns a plain element leaves them owned by the root scope,
+            // where nothing releases them and every navigation adds more.
+            //
+            // The scope goes first. It disposes in reverse order of creation, so a
+            // view's subscriptions are released before the elements they render
+            // into; tearing the elements down first would leave live subscriptions
+            // pointing at disposed elements for the length of the teardown.
             if (activeScope) {
                 activeScope.dispose();
                 activeScope = null;
+            }
+            if (active) {
+                // Component instances own a separate scope, so they still need this.
+                active.dispose();
+                active = null;
             }
         };
         let render = () => {

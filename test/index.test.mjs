@@ -2811,6 +2811,39 @@ test('a router view receives its own scope', () => {
     });
 });
 
+test('leaving a route releases a view subscription before its elements', () => {
+    withFakeHistory('/', () => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let shared = sculptor.signal(0);
+        let writes = [];
+        let router = sculptor.router({
+            '/': () => {
+                let element = sculptor.createDetached('p');
+                shared.subscribe(next => {
+                    writes.push(next);
+                    element.setText(String(next));
+                });
+                // Anything that writes while the route is being torn down reaches a
+                // subscription that must already be gone. Disposing the elements
+                // first would leave this one pointing at a disposed element.
+                element.onDispose(() => shared.set(shared.get() + 1));
+                return element;
+            },
+            '/away': () => sculptor.createDetached('p')
+        }, { parent: host });
+
+        shared.set(1);
+        assert.deepEqual(writes, [1]);
+
+        router.navigate('/away');
+        assert.doesNotThrow(() => sculptor.flush());
+        assert.deepEqual(writes, [1], 'the subscription was released before the element');
+        assert.equal(shared.get(), 2, 'the dispose hook still ran');
+        router.stop();
+    });
+});
+
 test('stopping a router releases the view it was showing', () => {
     withFakeHistory('/', () => {
         let sculptor = new DomSculptor();
