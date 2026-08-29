@@ -97,18 +97,19 @@ the new APIs. Seven of the eight are fixed; the counts are the evidence.
 
 | | before | after |
 | --- | ---: | ---: |
-| `child.find()` calls | 25 | 2 |
-| post-hoc `.classToggle()` / `.attr()` | 13 | 2 |
-| `classToggle()` calls | 10 | 2 |
-| element liveness guards | 5 | 3 |
+| `child.find()` calls | 25 | 0 |
+| post-hoc `.classToggle()` / `.attr()` | 13 | 0 |
+| `classToggle()` calls | 10 | 0 |
+| element liveness guards | 5 | 0 |
 
 **1. `tree()` could not name a node, so parts were addressed by CSS selector.**
 25 `child.find()` calls existed only to reach a node the same file had just
 built, and one of those selectors matched the profile header's column instead of
 the article column — a real bug whose fix at the time was to invent a class name
 purely for wiring. **Fixed:** a `refs` object at the root and `ref` on any node.
-The two that remain are inside a keyed list's `update`, where the row is handed
-to you and there is no tree to have named it.
+None remain: the two that survived the first pass were inside a keyed list's
+`update`, and giving each tab its own `active` signal removed the need for an
+`update` at all.
 
 **2. `tree()` could not express a reactive list**, so every view split into a
 declarative shell and an imperative fill. **Fixed:** `children` accepts
@@ -118,8 +119,7 @@ filled.
 
 **3. `text:` accepted a signal but `class:` and `attributes:` did not.** All 13
 reactive class and attribute bindings sat outside the `tree()` block. **Fixed:**
-attribute values may be signals and `class` accepts a map. The two that remain
-are, again, inside a keyed `update`.
+attribute values may be signals and `class` accepts a map. None remain.
 
 **4. `classToggle()` took one class, so an either/or pair cost four objects.**
 **Fixed:** it accepts a map, and plain booleans as well as signals.
@@ -142,10 +142,23 @@ scope belongs to it.
 
 **8. There was no way to ask whether the current scope is alive**, so five async
 continuations guarded on `root.html`. **Fixed:** the router hands each view its
-scope on the snapshot, and `scope.disposed` answers directly. The three guards
-that remain are in code that is not a route view, so nothing hands it a scope.
+scope on the snapshot, and `scope.disposed` answers directly. The remaining three
+guards were on subscription callbacks rather than async continuations, and they
+disappeared with the teardown-order guarantee below.
 
-One thing the rewrite taught that the first pass did not: **keyed rows are
-reused, so anything applied when a row was created has to be reapplied in
-`update`**. Declaring a row's active class in `render` alone leaves stale classes
-on reused rows — the tab strips needed an `update` to fix exactly that.
+## Two things the rewrite taught
+
+**Keyed rows are reused, so anything applied when a row was created has to be
+reapplied in `update`.** Declaring a row's active class in `render` alone leaves
+stale classes on reused rows; the verification caught exactly that on the tab
+strips. The better answer turned out not to be an `update` at all but a signal
+per row, so the class is a binding and reuse cannot make it stale. Both tab
+strips are written that way now, which is what took the last `child.find()` and
+`classToggle()` calls out of the app.
+
+**Leaving a route releases a view's subscriptions before its elements.** The
+router disposes the view's scope first, and a scope disposes in reverse order of
+creation, so a subscription made after the element it writes into is released
+before that element is torn down. That is why this app has no liveness guards on
+its subscription callbacks. It holds as long as you create the element before
+subscribing, which is the natural order anyway.

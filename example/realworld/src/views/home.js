@@ -29,14 +29,23 @@ export let homeView = ({ sculptor, session, navigate }) => {
         tab.set(next);
     };
 
+    // One signal per tab, held by label, so a row's active class is a binding
+    // rather than something re-applied when a reused row is updated.
+    let flags = new Map();
+    let flagFor = label => {
+        if (!flags.has(label)) flags.set(label, sculptor.signal(false));
+        return flags.get(label);
+    };
+
     let describeTabs = () => {
         let active = tab.get();
         let items = [];
         if (session.authenticated) {
-            items.push({ label: 'Your Feed', active: active.kind === 'feed', go: () => select({ kind: 'feed' }) });
+            items.push({ label: 'Your Feed', on: active.kind === 'feed', go: () => select({ kind: 'feed' }) });
         }
-        items.push({ label: 'Global Feed', active: active.kind === 'global', go: () => select({ kind: 'global' }) });
-        if (active.kind === 'tag') items.push({ label: `#${active.tag}`, active: true, go: () => {} });
+        items.push({ label: 'Global Feed', on: active.kind === 'global', go: () => select({ kind: 'global' }) });
+        if (active.kind === 'tag') items.push({ label: `#${active.tag}`, on: true, go: () => {} });
+        items.forEach(item => flagFor(item.label).set(item.on));
         tabs.set(items);
     };
 
@@ -97,14 +106,13 @@ export let homeView = ({ sculptor, session, navigate }) => {
                                             tag: 'li',
                                             class: 'nav-item',
                                             children: [
-                                                link(item.label, item.active ? ['nav-link', 'active'] : 'nav-link', item.go)
+                                                link(
+                                                    item.label,
+                                                    { 'nav-link': true, active: flagFor(item.label) },
+                                                    item.go
+                                                )
                                             ]
-                                        }),
-                                        // Keyed rows are reused, so state applied when
-                                        // a row was created has to be reapplied here.
-                                        update: (row, item) => {
-                                            row.child.find('a').classToggle({ active: item.active });
-                                        }
+                                        })
                                     }
                                 }]
                             }]

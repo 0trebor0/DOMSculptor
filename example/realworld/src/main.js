@@ -66,7 +66,6 @@ let iconLink = (href, label, icon) => navLink(href, [
 
 let navigation = sculptor.tree({ tag: 'ul', class: ['nav', 'navbar-nav', 'pull-xs-right'] });
 let renderNavigation = () => {
-    if (!navigation.html) return;
     navigation.child.clear();
     navigation.child.append(navLink('#/', [{ tag: 'span', text: 'Home' }]));
     let user = session.user.get();

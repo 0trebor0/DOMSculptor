@@ -156,7 +156,6 @@ export let articleListView = (sculptor, { state, limit, page, onPage, session, n
     let container = sculptor.createDetached('div');
     let notice = text => sculptor.tree({ tag: 'div', class: 'article-preview', text });
     let render = snapshot => {
-        if (!container.html) return;
         container.child.clear();
         if (snapshot.status === 'loading' || snapshot.status === 'idle') {
             return void container.child.append(notice('Loading articles...'));

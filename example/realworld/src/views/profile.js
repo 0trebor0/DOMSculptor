@@ -27,14 +27,22 @@ export let profileView = ({ sculptor, session, navigate, params, scope }) => {
         if (!scope.disposed) following.set(payload.profile.following);
     };
 
-    let describeTabs = () => tabs.set([
-        { label: 'My Articles', key: 'authored' },
-        { label: 'Favorited Articles', key: 'favorited' }
-    ].map(item => ({ ...item, active: tab.get() === item.key })));
+    // One signal per tab, so a row's active class is a binding rather than
+    // something re-applied when a reused row is updated.
+    let flags = { authored: sculptor.signal(false), favorited: sculptor.signal(false) };
+    let describeTabs = () => {
+        flags.authored.set(tab.get() === 'authored');
+        flags.favorited.set(tab.get() === 'favorited');
+        tabs.set([
+            { label: 'My Articles', key: 'authored' },
+            { label: 'Favorited Articles', key: 'favorited' }
+        ]);
+    };
 
     let actions = sculptor.createDetached('div');
+    // No liveness guard: this subscription is made inside the route's scope, which
+    // releases it before the elements it writes into are disposed.
     let renderActions = () => {
-        if (!actions.html) return;
         actions.child.clear();
         let current = session.user.get();
         if (current && current.username === username) {
@@ -117,7 +125,7 @@ export let profileView = ({ sculptor, session, navigate, params, scope }) => {
                                         class: 'nav-item',
                                         children: [{
                                             tag: 'a',
-                                            class: item.active ? ['nav-link', 'active'] : 'nav-link',
+                                            class: { 'nav-link': true, active: flags[item.key] },
                                             attributes: { href: '' },
                                             text: item.label,
                                             on: {
@@ -129,10 +137,7 @@ export let profileView = ({ sculptor, session, navigate, params, scope }) => {
                                                 }
                                             }
                                         }]
-                                    }),
-                                    update: (row, item) => {
-                                        row.child.find('a').classToggle({ active: item.active });
-                                    }
+                                    })
                                 }
                             }]
                         }]
