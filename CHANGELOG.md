@@ -90,11 +90,14 @@ uses [Semantic Versioning](https://semver.org/).
   append-one went from 2.8 ms to 0.7 ms, prepend-one from 2.7 ms to 0.8 ms,
   remove-middle from 2.7 ms to 0.8 ms, and swap-two from 3.8 ms to 0.7 ms.
 - Disposing an element now removes its node from the document before its subtree
-  is torn down, so every descendant is disposed off the document where removal
-  costs the engine no layout or style work. Clearing a thousand rows of eight
-  elements went from 14.4 ms to 9.0 ms. `onRemove` and `onDispose` hooks
-  consequently observe a node whose `parentNode` is already `null`; they
-  previously saw it still attached.
+  is torn down, and the descendants are then discarded with it instead of each
+  removing itself: only the root of a disposed subtree needs a `removeChild`.
+  A keyed list that loses every row at once also drops them from the DOM in one
+  write rather than one removal each. Clearing a thousand rows of eight elements
+  went from 14.4 ms to 7.1 ms. `onRemove` and `onDispose` hooks consequently run
+  with the subtree already out of the document; the element disposal started at
+  has a `null` `parentNode`, while a descendant still points at its parent. They
+  previously saw an attached node.
 - The gzip budget enforced by `npm run size` moved from 10 KB to 13 KB to make
   room for automatic dependency tracking, runtime ownership, routing, and
   virtualization. The build currently measures 12848 bytes.

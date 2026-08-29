@@ -662,6 +662,65 @@ passes at 142 tests, the browser matrix at 124/123/123, both benchmark harnesses
 show no regression, and the example's 25 checks pass against the live API after
 the rewrite.
 
+## clear-1000, on the second attempt
+
+The first attempt guessed at allocations and moved nothing. The second profiled
+the clear **on its own** - starting and stopping the CPU profiler around each
+clear, with the fill outside the window - and the answer was immediate:
+
+```
+  31.8%  removeChild
+  20.8%  (program)
+  10.8%  _clearChildren
+  10.0%  dispose
+   9.6%  (garbage collector)
+```
+
+`removeChild` at 31.8%, not allocation. Disposing a thousand benchmark rows
+detaches about eight thousand nodes one at a time, when only the thousand row
+roots ever needed detaching: everything below a removed node goes with it.
+
+**What changed.** `dispose()` and `_clearChildren()` take a private `discard`
+flag meaning "an ancestor has already been detached and is being thrown away, so
+this node needs no removal of its own". A top-level `dispose()` removes its own
+node and then discards its subtree.
+
+The first cut of this made things *worse* - 10.9 ms to 13.3 ms - because the
+discard path walked the child nodes after the `_children` loop had already
+disposed them, so every span was visited twice and the second visit allocated an
+array to recurse into its text node. `_cleanupKnownNode` went to 23.5% of the
+profile. Rewritten as a single sibling walk that both disposes wrappers and
+reaches wrappers nested inside unknown nodes, it went to 8.0 ms.
+
+**One special case on top.** When a keyed list loses every row and the container
+holds nothing else, the rows leave the DOM in one `textContent` write instead of
+a thousand removals. This helps a full clear only, which is worth saying plainly:
+it is a common app operation - a route change, a filter reset - but it is also
+exactly what the benchmark measures.
+
+| | before | after |
+| --- | ---: | ---: |
+| clear-1000 (comparison) | 9.6 ms | 7.1 ms |
+| clear of 1,000 x 8 (isolated) | 10.9 ms | 7.7 ms |
+| clear-all (own benchmark) | 0.6 ms | 0.4 ms |
+
+Across the whole session `clear-1000` went from 13.6 ms to 7.1 ms. Cost: 104
+gzipped bytes, 12845 to 12949 against the 13312 budget. Forced-GC heap delta over
+5,000 cycles fell from 34,732 to 23,904 bytes.
+
+**It changes observable behaviour**, so it is recorded under Changed and pinned
+by the existing disposal test, rewritten: a dispose hook now runs with the whole
+subtree out of the document, but only the element disposal started at has a
+`null` `parentNode`. A descendant still points at its parent, because it is
+discarded rather than removed.
+
+**Still 2.2x Solid**, and the remaining profile says why: `dispose` self time and
+collection. That is the per-element cost of a `DomElement` wrapper - a scope
+`Set` entry, a runtime `Map` entry, a static `WeakMap` entry, a listener record,
+dispose callbacks - which Solid and Preact do not pay because they allocate no
+wrapper per element. Closing that means redesigning the library's central
+abstraction, not tuning this path.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:
@@ -726,9 +785,13 @@ releasing ownership entries so they cannot accumulate.
 - `when()` still registers its stop function with the owning scope without
   untracking it when stopped early. One entry per conditional region, so churn
   is bounded in practice; left unchanged to keep this change scoped.
-- `clear-1000` remains the one case where DOMSculptor is behind the field, at
-  9.6 ms against 3.2-5.4 ms after the disposal fix. **Attempted again and
-  abandoned on the measurement.** Skipping the empty-children allocation for leaf
+- `clear-1000` is now 7.1 ms against 3.2-5.5 ms. See the section on it below; the
+  first attempt was abandoned on the measurement and the second, made after
+  profiling the clear on its own, worked. What is left is what a `DomElement`
+  costs.
+
+  The abandoned first attempt, kept for the record: **abandoned on the
+  measurement.** Skipping the empty-children allocation for leaf
   elements and replacing the per-node `removeChild` loop with a single
   `textContent` write cost 9 gzipped bytes and moved the median from 9.4 ms to
   9.6 ms - inside the noise - so it was reverted rather than kept for the look of

@@ -303,11 +303,13 @@ A subscription made inside a scope belongs to that scope and is released with
 it, the same way element bindings are released with their element. Outside a
 scope the caller still owns the unsubscribe function.
 
-A dispose hook receives an element whose node is already detached, so
-`el.html.parentNode` is `null` inside it. Disposal removes the node before it
-tears the subtree down, which is what keeps clearing a large list cheap. Read
-whatever you need about an element's position before disposing it, not from the
-hook.
+Disposal detaches the node before it tears the subtree down, which is what keeps
+clearing a large list cheap: only the element you disposed leaves the DOM, and
+its descendants are discarded with it rather than each removing itself. So inside
+a dispose hook the whole subtree is already out of the document, but only the
+element disposal started at has `el.html.parentNode === null`; a descendant still
+points at its parent. Read whatever you need about an element's position before
+disposing it, not from the hook.
 
 `onRemove()` and `remove()` remain compatibility aliases for `onDispose()` and
 `dispose()`. Moving an element between parents does not dispose or invoke
