@@ -1,70 +1,47 @@
-import { api, ApiError } from '../api.js';
-import { errorMessages } from '../parts.js';
+import { api } from '../api.js';
+import { errorLines, errorList } from '../parts.js';
 
 export let authView = mode => ({ sculptor, session, navigate }) => {
     let registering = mode === 'register';
-    let errors = sculptor.signal(null);
+    let failures = sculptor.signal([]);
     let busy = sculptor.signal(false);
 
-    let field = (type, placeholder) => sculptor.tree({
+    let field = (ref, type, placeholder) => ({
         tag: 'fieldset',
         class: 'form-group',
         children: [{
             tag: 'input',
+            ref,
             class: ['form-control', 'form-control-lg'],
             attributes: { type, placeholder }
         }]
     });
 
-    let username = registering ? field('text', 'Username') : null;
-    let email = field('email', 'Email');
-    let password = field('password', 'Password');
-    let submit = sculptor.tree({
-        tag: 'button',
-        class: ['btn', 'btn-lg', 'btn-primary', 'pull-xs-right'],
-        text: registering ? 'Sign up' : 'Sign in'
-    });
-    submit.attr('disabled', busy);
-
-    let valueOf = wrapper => wrapper.child.find('input').getValue();
-
     let send = async event => {
         event.preventDefault();
         if (busy.get()) return;
         busy.set(true);
-        errors.set(null);
+        failures.set([]);
         try {
-            let credentials = { email: valueOf(email), password: valueOf(password) };
-            if (registering) credentials.username = valueOf(username);
+            let credentials = { email: refs.email.getValue(), password: refs.password.getValue() };
+            if (registering) credentials.username = refs.username.getValue();
             let payload = registering
                 ? await api.register(credentials)
                 : await api.login(credentials);
             session.adopt(payload.user);
             navigate('/');
         } catch (error) {
-            errors.set(error instanceof ApiError && error.errors
-                ? error.errors
-                : { request: [error.message || 'failed'] });
+            failures.set(errorLines(error));
         } finally {
             busy.set(false);
         }
     };
 
-    let form = sculptor.tree({ tag: 'form', on: { submit: send } });
-    if (username) form.child.append(username);
-    form.child.append(email);
-    form.child.append(password);
-    form.child.append(submit);
-
-    let errorSlot = sculptor.createDetached('div');
-    errors.subscribe(value => {
-        errorSlot.child.clear();
-        if (value) errorSlot.child.append(errorMessages(sculptor, value));
-    }, { immediate: true });
-
-    let root = sculptor.tree({
+    let refs = {};
+    return sculptor.tree({
         tag: 'div',
         class: 'auth-page',
+        refs,
         children: [{
             tag: 'div',
             class: ['container', 'page'],
@@ -84,15 +61,26 @@ export let authView = mode => ({ sculptor, session, navigate }) => {
                                 attributes: { href: registering ? '#/login' : '#/register' },
                                 text: registering ? 'Have an account?' : 'Need an account?'
                             }]
+                        },
+                        errorList(sculptor, failures),
+                        {
+                            tag: 'form',
+                            on: { submit: send },
+                            children: [
+                                ...(registering ? [field('username', 'text', 'Username')] : []),
+                                field('email', 'email', 'Email'),
+                                field('password', 'password', 'Password'),
+                                {
+                                    tag: 'button',
+                                    class: ['btn', 'btn-lg', 'btn-primary', 'pull-xs-right'],
+                                    attributes: { disabled: busy },
+                                    text: registering ? 'Sign up' : 'Sign in'
+                                }
+                            ]
                         }
                     ]
                 }]
             }]
         }]
     });
-
-    let column = root.child.find('.col-md-6');
-    column.child.append(errorSlot);
-    column.child.append(form);
-    return root;
 };

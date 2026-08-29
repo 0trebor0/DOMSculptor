@@ -9,14 +9,22 @@ export let formatDate = value => {
 
 export let defaultImage = 'https://api.realworld.io/images/smiley-cyrus.jpeg';
 
-// The specification's error shape is { field: [message, ...] }, rendered as
-// "field message" lines above the form.
-export let errorMessages = (sculptor, errors) => sculptor.tree({
+// The specification's error shape is { field: [message, ...] }, flattened into
+// the "field message" lines the stylesheet expects.
+export let errorLines = error => {
+    if (!error) return [];
+    let errors = error.errors || { request: [error.message || 'failed'] };
+    return Object.entries(errors).flatMap(([field, messages]) =>
+        [].concat(messages).map(message => `${field} ${message}`)
+    );
+};
+
+// The list is the container's entire contents, so it is declared as reactive
+// children and never rebuilt by hand.
+export let errorList = (sculptor, lines) => sculptor.tree({
     tag: 'ul',
     class: 'error-messages',
-    children: Object.entries(errors || {}).flatMap(([field, messages]) =>
-        [].concat(messages).map(message => ({ tag: 'li', text: `${field} ${message}` }))
-    )
+    children: { each: lines, render: line => sculptor.tree({ tag: 'li', text: line }) }
 });
 
 export let tagPills = (sculptor, tags, className) => sculptor.tree({
@@ -24,6 +32,8 @@ export let tagPills = (sculptor, tags, className) => sculptor.tree({
     class: 'tag-list',
     children: (tags || []).map(tag => ({ tag: 'li', class: className, text: tag }))
 });
+
+let profileHref = username => `#/profile/${encodeURIComponent(username)}`;
 
 export let articlePreview = (sculptor, article, { session, navigate }) => {
     let favorited = sculptor.signal(article.favorited);
@@ -52,21 +62,8 @@ export let articlePreview = (sculptor, article, { session, navigate }) => {
         }
     };
 
-    let button = sculptor.tree({
-        tag: 'button',
-        class: ['btn', 'btn-sm', 'pull-xs-right'],
-        on: { click: toggle },
-        children: [
-            { tag: 'i', class: 'ion-heart' },
-            { tag: 'span', text: ' ' }
-        ]
-    });
-    button.child.append(sculptor.createDetached('span').text(count));
-    button.classToggle('btn-primary', sculptor.computed(() => favorited.get()));
-    button.classToggle('btn-outline-primary', sculptor.computed(() => !favorited.get()));
-
     let author = article.author;
-    let preview = sculptor.tree({
+    return sculptor.tree({
         tag: 'div',
         class: 'article-preview',
         children: [
@@ -76,7 +73,7 @@ export let articlePreview = (sculptor, article, { session, navigate }) => {
                 children: [
                     {
                         tag: 'a',
-                        attributes: { href: `#/profile/${encodeURIComponent(author.username)}` },
+                        attributes: { href: profileHref(author.username) },
                         children: [{ tag: 'img', attributes: { src: author.image || defaultImage } }]
                     },
                     {
@@ -86,10 +83,26 @@ export let articlePreview = (sculptor, article, { session, navigate }) => {
                             {
                                 tag: 'a',
                                 class: 'author',
-                                attributes: { href: `#/profile/${encodeURIComponent(author.username)}` },
+                                attributes: { href: profileHref(author.username) },
                                 text: author.username
                             },
                             { tag: 'span', class: 'date', text: formatDate(article.createdAt) }
+                        ]
+                    },
+                    {
+                        tag: 'button',
+                        class: {
+                            btn: true,
+                            'btn-sm': true,
+                            'pull-xs-right': true,
+                            'btn-primary': favorited,
+                            'btn-outline-primary': sculptor.computed(() => !favorited.get())
+                        },
+                        on: { click: toggle },
+                        children: [
+                            { tag: 'i', class: 'ion-heart' },
+                            { tag: 'span', text: ' ' },
+                            { tag: 'span', text: count }
                         ]
                     }
                 ]
@@ -101,16 +114,12 @@ export let articlePreview = (sculptor, article, { session, navigate }) => {
                 children: [
                     { tag: 'h1', text: article.title },
                     { tag: 'p', text: article.description },
-                    { tag: 'span', text: 'Read more...' }
+                    { tag: 'span', text: 'Read more...' },
+                    tagPills(sculptor, article.tagList, ['tag-default', 'tag-pill', 'tag-outline'])
                 ]
             }
         ]
     });
-    preview.child.find('.article-meta').child.append(button);
-    preview.child.find('.preview-link').child.append(
-        tagPills(sculptor, article.tagList, ['tag-default', 'tag-pill', 'tag-outline'])
-    );
-    return preview;
 };
 
 export let pagination = (sculptor, { total, limit, page, onSelect }) => {
@@ -145,25 +154,20 @@ export let pagination = (sculptor, { total, limit, page, onSelect }) => {
 // same four states, so they share one renderer driven by an asyncState.
 export let articleListView = (sculptor, { state, limit, page, onPage, session, navigate, emptyText }) => {
     let container = sculptor.createDetached('div');
+    let notice = text => sculptor.tree({ tag: 'div', class: 'article-preview', text });
     let render = snapshot => {
+        if (!container.html) return;
         container.child.clear();
         if (snapshot.status === 'loading' || snapshot.status === 'idle') {
-            container.child.append(sculptor.tree({ tag: 'div', class: 'article-preview', text: 'Loading articles...' }));
-            return;
+            return void container.child.append(notice('Loading articles...'));
         }
         if (snapshot.status === 'error') {
-            container.child.append(sculptor.tree({
-                tag: 'div',
-                class: 'article-preview',
-                text: `Could not load articles: ${snapshot.error?.message || 'unknown error'}`
-            }));
-            return;
+            return void container.child.append(
+                notice(`Could not load articles: ${snapshot.error?.message || 'unknown error'}`)
+            );
         }
         let { articles = [], articlesCount = 0 } = snapshot.data || {};
-        if (!articles.length) {
-            container.child.append(sculptor.tree({ tag: 'div', class: 'article-preview', text: emptyText }));
-            return;
-        }
+        if (!articles.length) return void container.child.append(notice(emptyText));
         articles.forEach(article => {
             container.child.append(articlePreview(sculptor, article, { session, navigate }));
         });

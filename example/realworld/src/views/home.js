@@ -8,6 +8,8 @@ export let homeView = ({ sculptor, session, navigate }) => {
     let page = sculptor.signal(0);
     let articles = sculptor.asyncState(null);
     let tags = sculptor.asyncState([]);
+    let tabs = sculptor.signal([]);
+    let tagNames = sculptor.signal([]);
 
     let load = () => {
         let params = { limit, offset: page.get() * limit };
@@ -27,72 +29,35 @@ export let homeView = ({ sculptor, session, navigate }) => {
         tab.set(next);
     };
 
-    let tabLink = (label, isActive, onClick) => ({
-        tag: 'li',
-        class: 'nav-item',
-        children: [{
-            tag: 'a',
-            class: isActive ? ['nav-link', 'active'] : 'nav-link',
-            attributes: { href: '' },
-            text: label,
-            on: {
-                click: event => {
-                    event.preventDefault();
-                    onClick();
-                }
-            }
-        }]
-    });
-
-    let toggle = sculptor.tree({ tag: 'div', class: 'feed-toggle' });
-    let renderToggle = () => {
+    let describeTabs = () => {
         let active = tab.get();
-        toggle.child.clear();
         let items = [];
         if (session.authenticated) {
-            items.push(tabLink('Your Feed', active.kind === 'feed', () => select({ kind: 'feed' })));
+            items.push({ label: 'Your Feed', active: active.kind === 'feed', go: () => select({ kind: 'feed' }) });
         }
-        items.push(tabLink('Global Feed', active.kind === 'global', () => select({ kind: 'global' })));
-        if (active.kind === 'tag') items.push(tabLink(`#${active.tag}`, true, () => {}));
-        toggle.child.append(sculptor.tree({ tag: 'ul', class: ['nav', 'nav-pills', 'outline-active'], children: items }));
+        items.push({ label: 'Global Feed', active: active.kind === 'global', go: () => select({ kind: 'global' }) });
+        if (active.kind === 'tag') items.push({ label: `#${active.tag}`, active: true, go: () => {} });
+        tabs.set(items);
     };
 
-    let sidebar = sculptor.tree({ tag: 'div', class: 'sidebar', children: [{ tag: 'p', text: 'Popular Tags' }] });
-    let renderTags = snapshot => {
-        let existing = sidebar.child.find('.tag-list');
-        if (existing) existing.remove();
-        let names = snapshot.status === 'success' ? snapshot.data : [];
-        sidebar.child.append(sculptor.tree({
-            tag: 'div',
-            class: 'tag-list',
-            children: (names || []).map(name => ({
-                tag: 'a',
-                class: ['tag-pill', 'tag-default'],
-                attributes: { href: '' },
-                text: name,
-                on: {
-                    click: event => {
-                        event.preventDefault();
-                        select({ kind: 'tag', tag: name });
-                    }
-                }
-            }))
-        }));
-    };
-
-    let list = articleListView(sculptor, {
-        state: articles,
-        limit,
-        page,
-        onPage: next => page.set(next),
-        session,
-        navigate,
-        emptyText: 'No articles are here... yet.'
+    let link = (label, className, go) => ({
+        tag: 'a',
+        class: className,
+        attributes: { href: '' },
+        text: label,
+        on: {
+            click: event => {
+                event.preventDefault();
+                go();
+            }
+        }
     });
 
+    let refs = {};
     let root = sculptor.tree({
         tag: 'div',
         class: 'home-page',
+        refs,
         children: [
             {
                 tag: 'div',
@@ -113,24 +78,82 @@ export let homeView = ({ sculptor, session, navigate }) => {
                     tag: 'div',
                     class: 'row',
                     children: [
-                        { tag: 'div', class: 'col-md-9' },
-                        { tag: 'div', class: 'col-md-3' }
+                        {
+                            tag: 'div',
+                            class: 'col-md-9',
+                            ref: 'feed',
+                            children: [{
+                                tag: 'div',
+                                class: 'feed-toggle',
+                                children: [{
+                                    tag: 'ul',
+                                    class: ['nav', 'nav-pills', 'outline-active'],
+                                    // The tab strip is its container's entire contents,
+                                    // so it is expressed as reactive children.
+                                    children: {
+                                        each: tabs,
+                                        key: item => item.label,
+                                        render: item => sculptor.tree({
+                                            tag: 'li',
+                                            class: 'nav-item',
+                                            children: [
+                                                link(item.label, item.active ? ['nav-link', 'active'] : 'nav-link', item.go)
+                                            ]
+                                        }),
+                                        // Keyed rows are reused, so state applied when
+                                        // a row was created has to be reapplied here.
+                                        update: (row, item) => {
+                                            row.child.find('a').classToggle({ active: item.active });
+                                        }
+                                    }
+                                }]
+                            }]
+                        },
+                        {
+                            tag: 'div',
+                            class: 'col-md-3',
+                            children: [{
+                                tag: 'div',
+                                class: 'sidebar',
+                                children: [
+                                    { tag: 'p', text: 'Popular Tags' },
+                                    {
+                                        tag: 'div',
+                                        class: 'tag-list',
+                                        children: {
+                                            each: tagNames,
+                                            key: name => name,
+                                            render: name => sculptor.tree(
+                                                link(name, ['tag-pill', 'tag-default'], () => select({ kind: 'tag', tag: name }))
+                                            )
+                                        }
+                                    }
+                                ]
+                            }]
+                        }
                     ]
                 }]
             }
         ]
     });
-    root.child.find('.col-md-9').child.append(toggle);
-    root.child.find('.col-md-9').child.append(list);
-    root.child.find('.col-md-3').child.append(sidebar);
 
-    renderToggle();
+    refs.feed.child.append(articleListView(sculptor, {
+        state: articles,
+        limit,
+        page,
+        onPage: next => page.set(next),
+        session,
+        navigate,
+        emptyText: 'No articles are here... yet.'
+    }));
+
+    describeTabs();
     tab.subscribe(() => {
-        renderToggle();
+        describeTabs();
         load();
     });
     page.subscribe(load);
-    tags.subscribe(renderTags, { immediate: true });
+    tags.subscribe(snapshot => tagNames.set(snapshot.status === 'success' ? snapshot.data || [] : []));
 
     load();
     tags.run(({ signal }) => api.tags({ signal }).then(payload => payload.tags)).catch(() => {});

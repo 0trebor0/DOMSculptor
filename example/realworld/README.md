@@ -55,8 +55,10 @@ failure, because the alternative is a button that feels dead on a slow network.
 
 # What building it found
 
-Two defects, both fixed in the library with tests that fail if the fix is
-reverted, and seven pieces of friction that are still there.
+Two defects and eight pieces of friction. Both defects and seven of the eight are
+now fixed in the library, each with a test that fails if the fix is reverted, and
+this app was rewritten onto the new APIs so the improvement could be counted
+rather than claimed.
 
 ## Defect: every route change leaked
 
@@ -88,55 +90,62 @@ without announcing it.
 Note the shape of this one: it only became reachable once views had scopes. The
 first fix exposed the second.
 
-## Friction
+## Friction, and what came of it
 
-Counted over 1,438 lines across 10 modules.
+Counted over the app, before the library changed and after it was rewritten onto
+the new APIs. Seven of the eight are fixed; the counts are the evidence.
 
-**1. `tree()` has no way to name a node, so parts are addressed by CSS selector.**
-25 `child.find()` calls exist only to reach a node the same file just built. It
-caused a real bug: `.container .row .col-xs-12` matched the profile header's
-column instead of the article column, and the fix was to invent a class name that
-exists purely for wiring. A `ref` key returning a map of named nodes would remove
-the whole category.
+| | before | after |
+| --- | ---: | ---: |
+| `child.find()` calls | 25 | 2 |
+| post-hoc `.classToggle()` / `.attr()` | 13 | 2 |
+| `classToggle()` calls | 10 | 2 |
+| element liveness guards | 5 | 3 |
 
-**2. `tree()` cannot express a reactive list.** `children:` takes an array, and
-`signal.list()` works on a container element, not inside a config. So every view
-splits into a declarative shell and an imperative fill, and that seam is visible
-in all six of them.
+**1. `tree()` could not name a node, so parts were addressed by CSS selector.**
+25 `child.find()` calls existed only to reach a node the same file had just
+built, and one of those selectors matched the profile header's column instead of
+the article column — a real bug whose fix at the time was to invent a class name
+purely for wiring. **Fixed:** a `refs` object at the root and `ref` on any node.
+The two that remain are inside a keyed list's `update`, where the row is handed
+to you and there is no tree to have named it.
 
-**3. `text:` accepts a signal but `class:` and `attributes:` do not.** Every
-reactive class or attribute is a `.classToggle()` or `.attr()` call after the
-`tree()` block — 13 of them here. The declarative form covers static markup and
-dynamic text, and stops exactly where a real UI needs it most.
+**2. `tree()` could not express a reactive list**, so every view split into a
+declarative shell and an imperative fill. **Fixed:** `children` accepts
+`{ each, key?, render, update? }`. The tab strips, the tag sidebar, the editor's
+tag pills, the comment list, and the form error lists are now declared, not
+filled.
 
-**4. `classToggle()` takes one class, so an either/or pair costs four objects:**
+**3. `text:` accepted a signal but `class:` and `attributes:` did not.** All 13
+reactive class and attribute bindings sat outside the `tree()` block. **Fixed:**
+attribute values may be signals and `class` accepts a map. The two that remain
+are, again, inside a keyed `update`.
 
-```js
-button.classToggle('btn-primary', sculptor.computed(() => favorited.get()));
-button.classToggle('btn-outline-primary', sculptor.computed(() => !favorited.get()));
-```
+**4. `classToggle()` took one class, so an either/or pair cost four objects.**
+**Fixed:** it accepts a map, and plain booleans as well as signals.
 
-Ten of these, five duplicated negations.
+**5. `child.append()` returns the parent, not the child.** **Not fixed, and
+deliberately so.** Changing it would break every chained call in every program
+using the library to trade one inconvenience for another.
 
-**5. `child.append()` returns the parent, not the child.** Convenient for adding
-siblings, but you can never chain into what you just appended, so building depth
-outside `tree()` means a temporary variable per level.
+**6. `asyncState.run()` both rejects and records the failure.** **Not fixed.**
+Four `.catch(() => {})` calls remain. The rejection is documented behaviour that
+callers awaiting `run()` depend on, and the redundancy only appears when the
+snapshot is what renders.
 
-**6. `asyncState.run()` both rejects and records the failure.** The snapshot is
-what the UI renders, so the rejection is always redundant: four
-`.catch(() => {})` calls whose only purpose is silence.
+**7. A bare `signal.subscribe()` was owned by nothing.** Element bindings
+released themselves with their element; a plain `subscribe` did not, even inside
+a scope. I leaked one inside a re-render in the article view and had to
+restructure it around a static skeleton. This was the last place where disposal
+was a discipline rather than a default. **Fixed:** a subscription made inside a
+scope belongs to it.
 
-**7. A bare `signal.subscribe()` is owned by nothing.** Element bindings
-(`bind`, `bindText`, `list`) release themselves when the element goes, but a
-plain `subscribe` does not, even inside a scope. I wrote one inside a re-render
-function in the article view and it accumulated a subscription per render, all
-pointing at replaced elements; fixing it meant restructuring the view around a
-static skeleton. After the runtime-ownership work, this is the one place where
-disposal is still a discipline rather than a default.
+**8. There was no way to ask whether the current scope is alive**, so five async
+continuations guarded on `root.html`. **Fixed:** the router hands each view its
+scope on the snapshot, and `scope.disposed` answers directly. The three guards
+that remain are in code that is not a route view, so nothing hands it a scope.
 
-**8. There is no way to ask whether the current scope is still alive.** Writing
-to a signal after its scope is disposed throws, which is right, but every async
-continuation therefore needs a liveness guard, and the only thing available to
-guard on is an element: `if (!root.html) return`. Five of those. `sculptor.disposed`
-exists for the runtime and `ComponentInstance.disposed` for components, but a view
-built from `tree()` has neither.
+One thing the rewrite taught that the first pass did not: **keyed rows are
+reused, so anything applied when a row was created has to be reapplied in
+`update`**. Declaring a row's active class in `render` alone leaves stale classes
+on reused rows — the tab strips needed an `update` to fix exactly that.

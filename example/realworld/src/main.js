@@ -18,21 +18,24 @@ let context = {
     session,
     navigate: path => router.navigate(path)
 };
-let withParams = view => snapshot => view({ ...context, params: snapshot.params });
+// Every view receives the scope the router created for it, so an asynchronous
+// continuation can ask whether its route is still on screen.
+let withRoute = (view, extra = null) => snapshot => view({
+    ...context,
+    params: extra ? { ...snapshot.params, ...extra } : snapshot.params,
+    scope: snapshot.scope
+});
 
 let router = sculptor.router({
-    '/': () => homeView(context),
-    '/login': () => authView('login')(context),
-    '/register': () => authView('register')(context),
-    '/settings': () => settingsView(context),
-    '/editor': withParams(editorView),
-    '/editor/:slug': withParams(editorView),
-    '/article/:slug': withParams(articleView),
-    '/profile/:username': withParams(profileView),
-    '/profile/:username/favorites': snapshot => profileView({
-        ...context,
-        params: { ...snapshot.params, tab: 'favorited' }
-    }),
+    '/': withRoute(homeView),
+    '/login': withRoute(authView('login')),
+    '/register': withRoute(authView('register')),
+    '/settings': withRoute(settingsView),
+    '/editor': withRoute(editorView),
+    '/editor/:slug': withRoute(editorView),
+    '/article/:slug': withRoute(articleView),
+    '/profile/:username': withRoute(profileView),
+    '/profile/:username/favorites': withRoute(profileView, { tab: 'favorited' }),
     '*': () => sculptor.tree({
         tag: 'div',
         class: ['container', 'page'],
@@ -43,44 +46,42 @@ let router = sculptor.router({
     })
 }, { hash: true, parent: '#view' });
 
-let navLink = (href, label, extra = null) => {
-    let active = sculptor.computed(() => `#${router.current.get().path}` === href);
-    let link = sculptor.tree({
+let navLink = (href, children) => sculptor.tree({
+    tag: 'li',
+    class: 'nav-item',
+    children: [{
         tag: 'a',
-        class: 'nav-link',
+        class: {
+            'nav-link': true,
+            active: sculptor.computed(() => `#${router.current.get().path}` === href)
+        },
         attributes: { href },
-        children: extra ? [{ tag: 'i', class: extra }, { tag: 'span', text: ` ${label}` }] : [{ tag: 'span', text: label }]
-    });
-    link.classToggle('active', active);
-    return sculptor.tree({ tag: 'li', class: 'nav-item' }).child.append(link);
-};
+        children
+    }]
+});
+let iconLink = (href, label, icon) => navLink(href, [
+    { tag: 'i', class: icon },
+    { tag: 'span', text: ` ${label}` }
+]);
 
 let navigation = sculptor.tree({ tag: 'ul', class: ['nav', 'navbar-nav', 'pull-xs-right'] });
 let renderNavigation = () => {
     if (!navigation.html) return;
     navigation.child.clear();
-    navigation.child.append(navLink('#/', 'Home'));
+    navigation.child.append(navLink('#/', [{ tag: 'span', text: 'Home' }]));
     let user = session.user.get();
     if (session.authenticated && user) {
-        navigation.child.append(navLink('#/editor', 'New Article', 'ion-compose'));
-        navigation.child.append(navLink('#/settings', 'Settings', 'ion-gear-a'));
-        let profileHref = `#/profile/${encodeURIComponent(user.username)}`;
-        let link = sculptor.tree({
-            tag: 'a',
-            class: 'nav-link',
-            attributes: { href: profileHref },
-            children: [
-                { tag: 'img', class: 'user-pic', attributes: { src: user.image || defaultImage } },
-                { tag: 'span', text: ` ${user.username}` }
-            ]
-        });
-        link.classToggle('active', sculptor.computed(() => `#${router.current.get().path}` === profileHref));
-        navigation.child.append(sculptor.tree({ tag: 'li', class: 'nav-item' }).child.append(link));
+        navigation.child.append(iconLink('#/editor', 'New Article', 'ion-compose'));
+        navigation.child.append(iconLink('#/settings', 'Settings', 'ion-gear-a'));
+        navigation.child.append(navLink(`#/profile/${encodeURIComponent(user.username)}`, [
+            { tag: 'img', class: 'user-pic', attributes: { src: user.image || defaultImage } },
+            { tag: 'span', text: ` ${user.username}` }
+        ]));
         return;
     }
     if (session.authenticated) return;
-    navigation.child.append(navLink('#/login', 'Sign in'));
-    navigation.child.append(navLink('#/register', 'Sign up'));
+    navigation.child.append(navLink('#/login', [{ tag: 'span', text: 'Sign in' }]));
+    navigation.child.append(navLink('#/register', [{ tag: 'span', text: 'Sign up' }]));
 };
 
 let header = sculptor.tree({
@@ -89,10 +90,12 @@ let header = sculptor.tree({
     children: [{
         tag: 'div',
         class: 'container',
-        children: [{ tag: 'a', class: 'navbar-brand', attributes: { href: '#/' }, text: 'conduit' }]
+        children: [
+            { tag: 'a', class: 'navbar-brand', attributes: { href: '#/' }, text: 'conduit' },
+            navigation
+        ]
     }]
 });
-header.child.find('.container').child.append(navigation);
 sculptor.mount(header, '#header');
 
 sculptor.mount(sculptor.tree({
