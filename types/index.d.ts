@@ -83,7 +83,9 @@ export interface DomClasses {
 }
 
 export interface DomChildren {
+    /** Returns the appended element, or the container for a raw node or string. */
     append(child: DomChild): DomElement;
+    /** Returns the prepended element, or the container for a raw node or string. */
     prepend(child: DomChild): DomElement;
     find(selector: string): DomElement | null;
     findAll(selector: string): DomElement[];
@@ -194,11 +196,12 @@ export interface AsyncSnapshot<T> {
 }
 
 export interface AsyncState<T> extends Readable<AsyncSnapshot<T>> {
+    /** Resolves with the resulting snapshot. It never rejects; read `error`. */
     run<R extends T = T>(
         task: (context: { signal: AbortSignal }) => Promise<R> | R,
         options?: { abortPrevious?: boolean }
-    ): Promise<R>;
-    retry(): Promise<T>;
+    ): Promise<AsyncSnapshot<T>>;
+    retry(): Promise<AsyncSnapshot<T>>;
     cancel(): void;
     reset(): void;
 }

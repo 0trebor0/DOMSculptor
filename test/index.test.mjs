@@ -1200,14 +1200,41 @@ test('async state reports loading, success, errors, and retries', async () => {
     let asyncState = new DomSculptor().asyncState('initial');
     let statuses = [];
     asyncState.subscribe(snapshot => statuses.push(snapshot.status));
-    assert.equal(await asyncState.run(async () => 'loaded'), 'loaded');
+    // run() resolves with the snapshot and never rejects; the snapshot is what
+    // callers render, so a rejection was redundant with it.
+    assert.deepEqual(
+        await asyncState.run(async () => 'loaded'),
+        { status: 'success', data: 'loaded', error: null }
+    );
     assert.deepEqual(asyncState.get(), { status: 'success', data: 'loaded', error: null });
-    assert.equal(await asyncState.retry(), 'loaded');
+    assert.deepEqual(await asyncState.retry(), { status: 'success', data: 'loaded', error: null });
     let failure = new Error('failed');
-    await assert.rejects(asyncState.run(() => Promise.reject(failure)), failure);
+    let failed = await asyncState.run(() => Promise.reject(failure));
+    assert.equal(failed.status, 'error');
+    assert.equal(failed.error, failure);
     assert.equal(asyncState.get().status, 'error');
     assert.equal(asyncState.get().error, failure);
     assert.deepEqual(statuses, ['refreshing', 'success', 'refreshing', 'success', 'refreshing', 'error']);
+});
+
+test('append and prepend return the element that was added', () => {
+    let sculptor = new DomSculptor();
+    let root = sculptor.create('div');
+    // Structures can be built downwards without a temporary for every level.
+    let leaf = root.child
+        .append(sculptor.createDetached('section'))
+        .child.append(sculptor.createDetached('p'))
+        .child.append(sculptor.createDetached('span'))
+        .setText('deep');
+
+    assert.equal(root.html.childNodes[0].childNodes[0].childNodes[0].textContent, 'deep');
+    assert.equal(leaf.parent().html.nodeName, 'P');
+
+    let first = root.child.prepend(sculptor.createDetached('header'));
+    assert.equal(root.html.firstChild, first.html);
+
+    // A raw node or string has no wrapper to return, so the container comes back.
+    assert.equal(root.child.append('text'), root);
 });
 
 test('ownership children are exposed as frozen snapshots', () => {
@@ -1893,9 +1920,11 @@ test('async state aborts superseded work and supports cancel and reset', async (
     });
     await Promise.resolve();
     let second = request.run(async () => 'newer');
-    await assert.rejects(first, error => error.name === 'AbortError');
+    // An aborted run resolves with whatever the state holds now rather than
+    // rejecting, so a superseded request needs no handler of its own.
+    await first;
     assert.equal(firstSignal.aborted, true);
-    assert.equal(await second, 'newer');
+    assert.deepEqual(await second, { status: 'success', data: 'newer', error: null });
     request.cancel();
     assert.deepEqual(request.get(), { status: 'success', data: 'newer', error: null });
     request.reset();
@@ -2289,11 +2318,13 @@ test('async state retries the previous task and clears state on reset', async ()
     assert.equal(statuses.includes('loading'), true);
 
     let retried = await request.retry();
-    assert.equal(retried, 'attempt-2');
+    assert.equal(retried.data, 'attempt-2');
     assert.equal(attempts, 2);
     assert.equal(statuses.includes('refreshing'), true);
 
-    await assert.rejects(request.run(async () => { throw new Error('failed'); }), /failed/);
+    let failed = await request.run(async () => { throw new Error('failed'); });
+    assert.equal(failed.status, 'error');
+    assert.match(failed.error.message, /failed/);
     assert.equal(request.get().status, 'error');
     assert.equal(request.get().error.message, 'failed');
 

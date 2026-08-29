@@ -177,6 +177,9 @@ class DomElement {
 
         // Child operations update native DOM and DOMSculptor ownership together.
         this.child = {
+            // Returns the appended element, so a structure can be built downwards
+            // without a temporary variable for every level. A raw node or string has
+            // no wrapper to return, so those return the container instead.
             append(child) {
                 el._assertLive('child.append');
                 let childElement = el._elementFor(child);
@@ -186,7 +189,9 @@ class DomElement {
                     el._children.push(childElement);
                     childElement._parent = el;
                     childElement._notifyMount();
-                } else if (isNode(child)) {
+                    return childElement;
+                }
+                if (isNode(child)) {
                     el.html.appendChild(child);
                 } else if (typeof child === 'string') {
                     el.html.appendChild(document.createTextNode(child));
@@ -205,7 +210,9 @@ class DomElement {
                     el._children.unshift(childElement);
                     childElement._parent = el;
                     childElement._notifyMount();
-                } else if (isNode(child)) {
+                    return childElement;
+                }
+                if (isNode(child)) {
                     el.html.prepend(child);
                 } else if (typeof child === 'string') {
                     el.html.prepend(document.createTextNode(child));
@@ -2338,18 +2345,19 @@ class DomSculptor {
                     error: null
                 });
 
+                // Resolves with the snapshot rather than rejecting. The snapshot is
+                // what callers render, so a rejection was always redundant with it
+                // and forced an empty catch at every call site.
                 return Promise.resolve()
                     .then(() => typeof task === 'function' ? task({ signal: currentController.signal }) : task)
                     .then(data => {
                         if (currentRun === runId) state.set({ status: 'success', data, error: null });
-                        return data;
-                    })
-                    .catch(error => {
+                    }, error => {
                         if (currentRun === runId && error?.name !== 'AbortError') {
                             state.set({ status: 'error', data: state.get().data, error });
                         }
-                        throw error;
-                    });
+                    })
+                    .then(() => state.get());
             },
             retry() { return api.run(lastTask); },
             cancel() {
