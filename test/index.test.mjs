@@ -2458,22 +2458,33 @@ test('disposal detaches the node before tearing the subtree down', () => {
     let root = parent.html.parentNode;
     assert.equal(root, document.body);
 
-    // Removing the node first means every descendant is disposed off the
+    // Removing the node first means the whole subtree is disposed off the
     // document, which is what makes clearing a large list cheap. Dispose hooks
-    // therefore observe a detached node, and that is the contract.
+    // therefore observe a detached subtree: the element disposal started at has no
+    // parent, and its descendants keep theirs but are no longer in the document.
+    // Only the root is detached, because the descendants go with it.
+    let parentNode = parent.html;
+    let childNode = child.html;
     let observed = [];
-    let record = name => element => observed.push([name, element.html.parentNode]);
+    let record = name => element => observed.push([
+        name,
+        element.html.parentNode,
+        document.body.childNodes.includes(parentNode)
+    ]);
     parent.onRemove(record('parent'));
     child.onRemove(record('child'));
     grandchild.onRemove(record('grandchild'));
 
     parent.remove();
 
-    assert.deepEqual(observed, [
-        ['grandchild', null],
-        ['child', null],
-        ['parent', null]
+    assert.deepEqual(observed.map(entry => [entry[0], entry[2]]), [
+        ['grandchild', false],
+        ['child', false],
+        ['parent', false]
     ]);
+    assert.equal(observed[0][1], childNode, 'a descendant keeps its parent node');
+    assert.equal(observed[1][1], parentNode, 'a descendant keeps its parent node');
+    assert.equal(observed[2][1], null, 'the disposed element itself is detached');
     assert.equal(root.childNodes.includes(parent.html), false);
     assert.equal(parent.html, null);
     assert.equal(child.html, null);

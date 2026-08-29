@@ -618,30 +618,54 @@ class DomElement {
         return isNode(value) ? this._sculptor?._elements?.get(value) || null : null;
     }
 
-    _cleanupKnownNode(node) {
+    _cleanupKnownNode(node, discard = false) {
         let element = this._sculptor?._elements?.get(node);
         if (element && element !== this) {
-            element.remove();
+            element.dispose(discard);
             return;
         }
         // Text nodes are the common case here and have no children to walk.
         if (!node.firstChild) return;
-        Array.from(node.childNodes).forEach(child => this._cleanupKnownNode(child));
+        Array.from(node.childNodes).forEach(child => this._cleanupKnownNode(child, discard));
     }
 
-    _clearChildren() {
+    // `discard` means this element's node is itself being thrown away, so nothing
+    // below it has to be detached: the descendants go with it. Only the root of a
+    // disposed subtree needs a removeChild, which is otherwise the single largest
+    // cost of clearing a large list.
+    _clearChildren(discard = false) {
         // Dispose known wrappers before removing unknown native children.
         let firstError = null;
+        if (discard) {
+            // Nothing is removed, so the children are walked once by sibling. That
+            // single pass disposes wrappers and reaches wrappers nested inside
+            // unknown nodes, where clearing normally needs a pass for each.
+            let node = this.html?.firstChild;
+            while (node) {
+                let next = node.nextSibling;
+                try { this._cleanupKnownNode(node, true); } catch (error) { if (!firstError) firstError = error; }
+                node = next;
+            }
+            // Anything this element owns whose node has been moved elsewhere is not
+            // reachable from that walk, so it is disposed here.
+            this._children.slice().forEach(child => {
+                if (!child.html) return;
+                try { child.dispose(discard); } catch (error) { if (!firstError) firstError = error; }
+            });
+            this._children = [];
+            if (firstError) throw firstError;
+            return;
+        }
         this._children.slice().forEach(child => {
             if (child._parent !== this && child.html?.parentNode !== this.html) return;
-            try { child.remove(); } catch (error) { if (!firstError) firstError = error; }
+            try { child.dispose(); } catch (error) { if (!firstError) firstError = error; }
         });
+        this._children = [];
         while (this.html?.firstChild) {
             let node = this.html.firstChild;
             try { this._cleanupKnownNode(node); } catch (error) { if (!firstError) firstError = error; }
             if (node.parentNode === this.html) this.html.removeChild(node);
         }
-        this._children = [];
         if (firstError) throw firstError;
     }
 
@@ -696,17 +720,19 @@ class DomElement {
         return this;
     }
 
-    dispose() {
+    dispose(discard = false) {
         // Disposal is permanent and reentrancy-safe; unmounting remains reversible.
         if (!this.html || this._removing) return;
         this._removing = true;
         let errors = [];
         this._detachFromParent();
-        // Detaching this node before its subtree is disposed keeps every
-        // descendant's own removal off the document, where it costs the engine no
-        // layout or style work.
-        if (this.html.parentNode) this.html.parentNode.removeChild(this.html);
-        try { this._clearChildren(); } catch (error) { errors.push(error); }
+        // Detaching this node before its subtree is disposed keeps the teardown off
+        // the document. `discard` says an ancestor has already been detached and is
+        // being thrown away, so this node needs no removal of its own.
+        if (!discard && this.html.parentNode) this.html.parentNode.removeChild(this.html);
+        // Either way this node is going away, so its own children never need
+        // detaching from it.
+        try { this._clearChildren(true); } catch (error) { errors.push(error); }
         let disposeCallbacks = this._removeCallbacks.splice(0);
         disposeCallbacks.forEach(callback => {
             try { callback(this); } catch (error) { errors.push(error); }
@@ -1977,9 +2003,15 @@ class DomSculptor {
                         // list is emptied first: leaving it populated makes every row's
                         // detach scan it, which is quadratic in the size of the list.
                         container._children = [];
+                        // When every row departs and the container holds nothing else,
+                        // the rows leave the DOM in one write instead of one removal
+                        // each, and are then disposed as a discarded subtree.
+                        let wholesale = nextRecords.size === 0 && records.size > 0 &&
+                            container.html.childNodes.length === records.size;
+                        if (wholesale) container.html.textContent = '';
                         records.forEach((record, key) => {
                             if (nextRecords.has(key)) return;
-                            try { record.element.remove(); } catch (error) { errors.push(error); }
+                            try { record.element.dispose(wholesale); } catch (error) { errors.push(error); }
                         });
 
                         let ordered = Array.from(nextRecords.values(), record => record.element);
