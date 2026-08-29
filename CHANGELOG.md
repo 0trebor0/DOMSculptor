@@ -96,6 +96,12 @@ uses [Semantic Versioning](https://semver.org/).
   left it as the one thing still needing manual cleanup after the runtime
   ownership work. Outside a scope nothing changes: the caller still owns the
   returned unsubscribe function.
+- Leaving a route now disposes the view's scope before its elements. A scope
+  disposes in reverse order of creation, so a subscription made after the element
+  it writes into is released before that element is torn down; tearing the
+  elements down first left live subscriptions pointing at disposed elements for
+  the length of the teardown, which is the same shape as the `asyncState` failure
+  below.
 - `router()` now runs each view inside a scope of its own and disposes it on the
   way out. A view returning a plain element previously had no scope, so the
   signals, computed values, and effects it created stayed owned by the runtime

@@ -591,19 +591,36 @@ was rewritten onto the new APIs to prove it rather than to assert it.
 
 | | before | after |
 | --- | ---: | ---: |
-| `child.find()` calls | 25 | 2 |
-| post-hoc `.classToggle()` / `.attr()` | 13 | 2 |
-| `classToggle()` calls | 10 | 2 |
-| element liveness guards | 5 | 3 |
+| `child.find()` calls | 25 | 0 |
+| post-hoc `.classToggle()` / `.attr()` | 13 | 0 |
+| `classToggle()` calls | 10 | 0 |
+| element liveness guards | 5 | 0 |
 
-The two remaining `child.find()` calls are both inside a keyed list's `update`,
-where the row is handed to you and there is no tree to have named it. The three
-remaining element guards are in code that is not a route view, so no scope is
-handed to it. Line count went from 1,438 to 1,481: declarative configuration is
-slightly longer than the imperative appends it replaced, and all the wiring is
-gone.
+Getting the last of each to zero took two more changes rather than more API.
+
+**A signal per row beats an `update`.** The two surviving `child.find()` calls
+were both inside a keyed list's `update`, re-applying an active class to reused
+rows. Giving each tab its own `active` signal makes the class a binding, so reuse
+cannot make it stale and no `update` is needed. That is the idiom worth teaching:
+`update` is for content that genuinely differs per item, not for state that has a
+signal.
+
+**Teardown order, made a guarantee.** The three remaining guards were on
+subscription callbacks, not async continuations. `router()` now disposes the
+view's scope *before* its elements; a scope disposes in reverse order of
+creation, so a subscription made after the element it writes into is released
+before that element is torn down. Tearing elements down first left live
+subscriptions pointing at disposed elements for the length of the teardown -
+the same shape as the `asyncState` failure. Pinned by a test that fails when the
+order is swapped back.
+
+Line count went from 1,438 to 1,492: declarative configuration is slightly longer
+than the imperative appends it replaced, and all the wiring is gone.
 
 ### What was not fixed, and why
+
+Both of these are breaking changes to documented behaviour, which is why they
+stayed.
 
 - **`child.append()` returns the parent.** Changing it would break every chained
   call in every program using the library, to trade one inconvenience for
