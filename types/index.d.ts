@@ -107,6 +107,7 @@ export class DomElement<T extends Node = HTMLElement> {
     text<V>(readable: Readable<V>): this;
     attr<V>(name: string, readable: Readable<V>): this;
     classToggle<V>(name: string, readable: Readable<V>): this;
+    classToggle(names: Record<string, Readable<unknown> | boolean>): this;
     styleValue<V>(name: string, readable: Readable<V>): this;
     getValue(): unknown;
     setValue(value: unknown): this;
@@ -270,17 +271,31 @@ export interface Router {
     readonly stopped: boolean;
 }
 
-export type RouteView = (snapshot: RouteSnapshot) => DomElement | ComponentInstance<never> | ComponentInstance<any>;
+export interface RouteViewSnapshot extends RouteSnapshot {
+    scope: DisposalScope;
+}
+
+export type RouteView = (snapshot: RouteViewSnapshot) => DomElement | ComponentInstance<never> | ComponentInstance<any>;
 
 export type TreeChild = string | Node | DomElement | TreeConfig | readonly TreeChild[];
+export interface TreeList<T> {
+    each: Readable<readonly T[]>;
+    key?: (item: T, index: number) => unknown;
+    render: (item: T, index: number) => DomElement;
+    update?: (element: DomElement, item: T, index: number) => void;
+}
 export interface TreeConfig<K extends string = string> {
     tag: K;
     text?: unknown | Readable<unknown>;
-    attributes?: Record<string, unknown>;
-    class?: string | readonly string[];
+    attributes?: Record<string, unknown | Readable<unknown>>;
+    class?: string | readonly string[] | Record<string, Readable<unknown> | boolean>;
     properties?: Record<string, unknown>;
     on?: Record<string, EventListener | { handler: EventListener; options?: AddEventListenerOptions | boolean }>;
-    children?: readonly TreeChild[];
+    children?: readonly TreeChild[] | TreeList<any>;
+    /** Names this node in the `refs` object supplied at the root of the tree. */
+    ref?: string;
+    /** Root-level only: filled with every node in the tree that declares a `ref`. */
+    refs?: Record<string, DomElement>;
 }
 
 export class DevDomSculptor extends DomSculptor {

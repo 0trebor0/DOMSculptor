@@ -1565,6 +1565,135 @@ test('createProgressively uses a timer when animation frames are unavailable', a
     assert.equal(sculptor.rendering, false);
 });
 
+test('a subscription made inside a scope is released with the scope', () => {
+    let sculptor = new DomSculptor();
+    let value = sculptor.signal(0);
+    let seen = [];
+    let scope = sculptor.createScope();
+    scope.run(() => value.subscribe(next => seen.push(next)));
+
+    value.set(1);
+    assert.deepEqual(seen, [1]);
+    scope.dispose();
+    value.set(2);
+    assert.deepEqual(seen, [1], 'the scope owns the subscription and released it');
+
+    // Outside a scope nothing changes: the caller still owns the unsubscribe.
+    let stop = value.subscribe(next => seen.push(next));
+    value.set(3);
+    assert.deepEqual(seen, [1, 3]);
+    stop();
+    value.set(4);
+    assert.deepEqual(seen, [1, 3]);
+});
+
+test('unsubscribing releases the scope entry it took', () => {
+    let sculptor = new DomSculptor();
+    let value = sculptor.signal(0);
+    let scope = sculptor.createScope();
+    let baseline = scope._cleanups.size;
+    for (let round = 0; round < 200; round++) {
+        scope.run(() => value.subscribe(() => {}))();
+    }
+    assert.equal(scope._cleanups.size, baseline, 'subscribe and unsubscribe must not accumulate');
+});
+
+test('tree collects named nodes into the object it is given', () => {
+    let sculptor = new DomSculptor();
+    let refs = {};
+    let root = sculptor.tree({
+        tag: 'section',
+        refs,
+        children: [
+            { tag: 'h1', ref: 'title', text: 'Hello' },
+            {
+                tag: 'div',
+                class: 'body',
+                children: [{ tag: 'p', ref: 'copy', text: 'Text' }]
+            }
+        ]
+    });
+
+    assert.equal(refs.title.html, root.html.firstChild);
+    assert.equal(refs.copy.html.textContent, 'Text');
+    refs.copy.setText('Replaced');
+    assert.equal(root.html.childNodes[1].childNodes[0].textContent, 'Replaced');
+    assert.throws(() => sculptor.tree({ tag: 'p', refs: {}, ref: 5 }), /ref must be a name/);
+    assert.throws(() => sculptor.tree({ tag: 'p', refs: 'no' }), /refs must be an object/);
+});
+
+test('tree binds readable attributes and a class map', () => {
+    let sculptor = new DomSculptor();
+    let active = sculptor.signal(false);
+    let label = sculptor.signal('first');
+    let element = sculptor.tree({
+        tag: 'button',
+        attributes: { 'aria-label': label, type: 'button' },
+        class: {
+            'is-active': active,
+            'is-idle': sculptor.computed(() => !active.get()),
+            constant: true
+        }
+    });
+
+    assert.equal(element.attribute.get('aria-label'), 'first');
+    assert.equal(element.attribute.get('type'), 'button');
+    assert.equal(element.class.contains('is-idle'), true);
+    assert.equal(element.class.contains('is-active'), false);
+    assert.equal(element.class.contains('constant'), true);
+
+    label.set('second');
+    active.set(true);
+    // Reactive bindings share the scheduler, so they land on the next flush.
+    sculptor.flush();
+    assert.equal(element.attribute.get('aria-label'), 'second');
+    assert.equal(element.class.contains('is-active'), true);
+    assert.equal(element.class.contains('is-idle'), false);
+});
+
+test('classToggle accepts a map and plain values', () => {
+    let sculptor = new DomSculptor();
+    let on = sculptor.signal(true);
+    let element = sculptor.createDetached('div');
+    element.classToggle({ open: on, closed: sculptor.computed(() => !on.get()), fixed: true });
+
+    assert.equal(element.class.contains('open'), true);
+    assert.equal(element.class.contains('closed'), false);
+    assert.equal(element.class.contains('fixed'), true);
+    on.set(false);
+    sculptor.flush();
+    assert.equal(element.class.contains('open'), false);
+    assert.equal(element.class.contains('closed'), true);
+});
+
+test('tree renders a reactive list as its children', () => {
+    let sculptor = new DomSculptor();
+    let items = sculptor.signal([{ id: 1, label: 'one' }, { id: 2, label: 'two' }]);
+    let root = sculptor.tree({
+        tag: 'ul',
+        children: {
+            each: items,
+            key: item => item.id,
+            render: item => sculptor.tree({ tag: 'li', text: item.label }),
+            update: (row, item) => row.setText(item.label)
+        }
+    });
+
+    assert.deepEqual(Array.from(root.html.childNodes, node => node.textContent), ['one', 'two']);
+    let [first] = root.children;
+    items.set([{ id: 2, label: 'TWO' }, { id: 1, label: 'ONE' }]);
+    sculptor.flush();
+    assert.deepEqual(Array.from(root.html.childNodes, node => node.textContent), ['TWO', 'ONE']);
+    assert.equal(root.children[1], first, 'keyed rows keep their identity');
+
+    let plain = sculptor.signal(['a', 'b']);
+    let simple = sculptor.tree({
+        tag: 'ul',
+        children: { each: plain, render: value => sculptor.tree({ tag: 'li', text: value }) }
+    });
+    assert.deepEqual(Array.from(simple.html.childNodes, node => node.textContent), ['a', 'b']);
+});
+
 test('keyed lists preserve identity through reorder, insert, update, and remove', () => {
     let sculptor = new DomSculptor();
     let items = sculptor.signal([
@@ -2656,6 +2785,29 @@ test('a router view owns the signals it creates and releases them on navigation'
 
         router.stop();
         assert.equal(host.html.childNodes.length, 0);
+    });
+});
+
+test('a router view receives its own scope', () => {
+    withFakeHistory('/', () => {
+        let sculptor = new DomSculptor();
+        let host = sculptor.create('main');
+        let captured = null;
+        let router = sculptor.router({
+            '/': snapshot => {
+                captured = snapshot.scope;
+                return sculptor.createDetached('p');
+            },
+            '/away': () => sculptor.createDetached('p')
+        }, { parent: host });
+
+        assert.equal(typeof captured?.disposed, 'boolean');
+        assert.equal(captured.disposed, false);
+        router.navigate('/away');
+        sculptor.flush();
+        // An asynchronous continuation can now ask whether its route is still shown.
+        assert.equal(captured.disposed, true);
+        router.stop();
     });
 });
 

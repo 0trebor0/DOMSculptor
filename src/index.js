@@ -97,6 +97,9 @@ class DisposalScope {
 // their previous positions. Keeping those in place and moving only the rest is the
 // minimum number of DOM moves a keyed reorder needs; placing every row by index
 // instead costs one move per row for a single swap.
+let isReadable = value => Boolean(value) &&
+    typeof value.get === 'function' && typeof value.subscribe === 'function';
+
 let longestIncreasingRun = positions => {
     let tails = [];
     let parents = new Array(positions.length);
@@ -280,8 +283,21 @@ class DomElement {
 
     classToggle(name, readable) {
         this._assertLive('classToggle');
+        if (name && typeof name === 'object') {
+            // A map keeps a two-state pair in one call instead of two calls and a
+            // separately written negation.
+            for (let key in name) {
+                if (Object.hasOwnProperty.call(name, key)) this.classToggle(key, name[key]);
+            }
+            return this;
+        }
         if (typeof name !== 'string' || !name) {
             throw new TypeError('DomSculptor.classToggle: expected a class name.');
+        }
+        if (!isReadable(readable)) {
+            if (readable) this.class.add(name);
+            else this.class.remove(name);
+            return this;
         }
         return this._bindReadable(readable, value => {
             if (value) this.class.add(name);
@@ -1189,7 +1205,7 @@ class DomSculptor {
         }
     }
 
-    tree(config) {
+    tree(config, collected = null) {
         // Tree configuration is applied to detached nodes before any optional mounting.
         if (!config || typeof config !== 'object' || Array.isArray(config)) {
             throw new TypeError('DomSculptor.tree: expected a configuration object.');
@@ -1198,9 +1214,24 @@ class DomSculptor {
             throw new TypeError('DomSculptor.tree: expected a tag.');
         }
         let element = this.createDetached(config.tag);
+        // Named nodes are collected into the caller's object, so a tree is wired up
+        // by name instead of by re-querying it with a CSS selector afterwards.
+        let refs = collected || config.refs || null;
+        if (refs != null && typeof refs !== 'object') throw new TypeError('DomSculptor.tree: refs must be an object.');
+        if (config.ref != null) {
+            if (typeof config.ref !== 'string' || !config.ref) {
+                throw new TypeError('DomSculptor.tree: ref must be a name.');
+            }
+            if (refs) refs[config.ref] = element;
+        }
         if (config.attributes != null) {
             if (typeof config.attributes !== 'object') throw new TypeError('DomSculptor.tree: attributes must be an object.');
-            element.attribute.set(config.attributes);
+            for (let name in config.attributes) {
+                if (!Object.hasOwnProperty.call(config.attributes, name)) continue;
+                let value = config.attributes[name];
+                if (isReadable(value)) element.attr(name, value);
+                else element.attribute.set(name, value);
+            }
         }
         if (config.properties != null) {
             if (typeof config.properties !== 'object') throw new TypeError('DomSculptor.tree: properties must be an object.');
@@ -1208,7 +1239,8 @@ class DomSculptor {
         }
         if (typeof config.class === 'string') element.class.add(config.class);
         else if (Array.isArray(config.class)) element.class.add(...config.class);
-        else if (config.class != null) throw new TypeError('DomSculptor.tree: class must be a string or array.');
+        else if (config.class != null && typeof config.class === 'object') element.classToggle(config.class);
+        else if (config.class != null) throw new TypeError('DomSculptor.tree: class must be a string, array, or map.');
         if (config.on != null) {
             if (typeof config.on !== 'object') throw new TypeError('DomSculptor.tree: on must be an event map.');
             Object.keys(config.on).forEach(name => {
@@ -1239,14 +1271,23 @@ class DomSculptor {
             if (Array.isArray(child)) {
                 child.forEach(append);
             } else if (child && typeof child === 'object' && !isNode(child) && !(child instanceof DomElement)) {
-                element.child.append(this.tree(child));
+                element.child.append(this.tree(child, refs));
             } else if (child instanceof DomElement || isNode(child) || typeof child === 'string') {
                 element.child.append(child);
             } else if (child != null && child !== false) {
                 element.child.append(String(child));
             }
         };
-        if (config.children != null) append(config.children);
+        if (config.children != null) {
+            // A reactive list owns every child of its container, so it cannot sit
+            // beside siblings; it is expressed as the children themselves.
+            if (!Array.isArray(config.children) && isReadable(config.children.each)) {
+                let { each, ...list } = config.children;
+                each.list(element, list.key ? list : list.render);
+            } else {
+                append(config.children);
+            }
+        }
         return element;
     }
 
@@ -1391,7 +1432,10 @@ class DomSculptor {
             let route = compiled.find(entry => entry.pattern === snapshot.route);
             if (!route) return;
             activeScope = this.createScope();
-            active = activeScope.run(() => route.view(snapshot));
+            let scope = activeScope;
+            // The view is handed its own scope so an asynchronous continuation can
+            // ask whether the route it belongs to is still on screen.
+            active = scope.run(() => route.view({ ...snapshot, scope }));
             if (active) this.mount(active, parentElement);
         };
         let apply = path => {
@@ -1755,13 +1799,24 @@ class DomSculptor {
                 if (options.signal?.aborted) return () => {};
                 let subscription = { callback: fn, active: true };
                 subscribers.push(subscription);
+                let release = null;
                 let unsubscribe = () => {
                     if (!subscription.active) return;
                     subscription.active = false;
                     let i = subscribers.indexOf(subscription);
                     if (i > -1) subscribers.splice(i, 1);
                     options.signal?.removeEventListener('abort', unsubscribe);
+                    release?.();
                 };
+                // A subscription made inside a scope belongs to it. Element bindings
+                // already release themselves with their element; a bare subscribe had
+                // no owner at all, which left it as the one thing still needing
+                // manual cleanup.
+                let owner = sculptor._activeScope;
+                if (owner) {
+                    owner.track(unsubscribe);
+                    release = () => owner._untrack(unsubscribe);
+                }
                 subscription.unsubscribe = unsubscribe;
                 options.signal?.addEventListener('abort', unsubscribe, { once: true });
                 if (options.immediate) fn(value);

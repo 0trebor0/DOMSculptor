@@ -192,6 +192,8 @@ descendants:
 el.text(label);
 el.attr('aria-expanded', open);
 el.classToggle('active', open);
+// A map sets several classes at once, and takes plain booleans as well as signals.
+el.classToggle({ open, closed: sculptor.computed(() => !open.get()), fixed: true });
 el.styleValue('opacity', opacity);
 ```
 
@@ -296,6 +298,10 @@ or on its first DOMSculptor mount. `onUnmount()` runs on every explicit temporar
 unmount, child before parent. `onDispose()` runs once during permanent cleanup,
 also child before parent. Every hook is attempted when several throw, with
 multiple failures reported as `AggregateError`.
+
+A subscription made inside a scope belongs to that scope and is released with
+it, the same way element bindings are released with their element. Outside a
+scope the caller still owns the unsubscribe function.
 
 A dispose hook receives an element whose node is already detached, so
 `el.html.parentNode` is `null` inside it. Disposal removes the node before it
@@ -794,6 +800,62 @@ sculptor.mount(card, '#app');
 DOMSculptor 2.0 removes the deprecated `jsontohtml()` compatibility API.
 Use detached `tree()` configurations for new and migrated code.
 
+### Naming nodes instead of querying for them
+
+Give the root a `refs` object and any node a `ref`, and the tree fills it in as it
+builds. This replaces reaching back into a tree you just built with a CSS
+selector, which breaks quietly when a selector matches something else first.
+
+```js
+let refs = {};
+let form = sculptor.tree({
+    tag: 'form',
+    refs,
+    children: [
+        { tag: 'input', ref: 'email', attributes: { type: 'email' } },
+        { tag: 'button', text: 'Send' }
+    ]
+});
+
+refs.email.setValue('someone@example.com');
+```
+
+### Reactive attributes, classes, and children
+
+`attributes` values may be signals, `class` accepts a map of class names to
+signals or booleans, and `children` accepts a reactive list instead of an array.
+
+```js
+let busy = sculptor.signal(false);
+let rows = sculptor.signal([{ id: 1, label: 'one' }]);
+
+let panel = sculptor.tree({
+    tag: 'div',
+    class: {
+        panel: true,
+        'is-busy': busy,
+        'is-idle': sculptor.computed(() => !busy.get())
+    },
+    children: [
+        { tag: 'button', text: 'Save', attributes: { disabled: busy } },
+        {
+            tag: 'ul',
+            // A reactive list owns every child of its container, so it is the
+            // container's children rather than one of them.
+            children: {
+                each: rows,
+                key: row => row.id,
+                render: row => sculptor.tree({ tag: 'li', text: row.label }),
+                update: (element, row) => element.setText(row.label)
+            }
+        }
+    ]
+});
+```
+
+Keyed rows are reused, so anything applied when a row was created has to be
+reapplied in `update`.
+
 ## Conditional rendering
 
 `when()` switches branches in one queued rendering pass. Static branches are
@@ -901,6 +963,22 @@ router.stop();
 A route view is any function returning a `DomElement` or a component instance,
 so `sculptor.component()` factories can be used directly. The matched snapshot
 is passed in, making `params` available as component props.
+
+Each view runs inside a scope of its own, so the signals, computed values,
+effects, and subscriptions it creates are released when the route changes. That
+scope is on the snapshot, which gives an asynchronous continuation a way to ask
+whether its route is still on screen:
+
+```js
+'/posts/:slug': ({ params, scope }) => {
+    let post = sculptor.signal(null);
+    load(params.slug).then(value => {
+        if (scope.disposed) return;   // the reader navigated away
+        post.set(value);
+    });
+    return sculptor.tree({ tag: 'article', text: sculptor.computed(() => post.get()?.title ?? '') });
+}
+```
 
 `current` is a readable signal, so page titles and navigation state can bind to
 it like any other value:
