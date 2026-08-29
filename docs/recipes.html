@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
-    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./reference.html">Reference</a><a href="./api.html">API</a><a href="./examples.html">Examples</a></nav>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./reference.html">Reference</a><a href="./routing.html">Routing</a><a href="./api.html">API</a><a href="./examples.html">Examples</a></nav>
   </header>
   <main class="examples-page">
     <section class="hero">
@@ -79,15 +79,24 @@ await users.run(({ signal }) =&gt;
 );
 // The subscriber above renders every outcome, so run() needs no handler here.</code></pre></section>
 
-    <section><h2>Own a route lifetime</h2><pre><code>let activeRoute = null;
+    <section><h2>Own a route lifetime</h2><pre><code>const router = sculptor.router({
+  "/": () =&gt; sculptor.tree({ tag: "h1", text: "Home" }),
+  "/posts/:slug": ({ params, scope }) =&gt; {
+    const post = sculptor.signal(null);
+    load(params.slug).then(value =&gt; {
+      if (scope.disposed) return;   // the reader navigated away
+      post.set(value);
+    });
+    return sculptor.tree({ tag: "article", text: sculptor.computed(() =&gt; post.get()?.title ?? "Loading…") });
+  },
+  "*": () =&gt; sculptor.tree({ tag: "p", text: "Not found" })
+}, { parent: "#app" });
 
-function showRoute(factory) {
-  activeRoute?.dispose();
-  activeRoute = factory();
-  sculptor.mount(activeRoute, "#app");
-}
-
-addEventListener("pagehide", () =&gt; activeRoute?.dispose(), { once: true });</code></pre></section>
+router.navigate("/posts/keyed-lists");
+router.stop();   // or sculptor.dispose(), which stops it too</code></pre>
+      <p>The router disposes the previous view and its scope on every change, so a
+      route's signals, effects, and subscriptions go with it. There is nothing to
+      unwind by hand. See the <a href="./routing.html">routing guide</a>.</p></section>
 
     <section><h2>Share a service with context</h2><pre><code>const Session = sculptor.createContextKey("Session");
 const appContext = sculptor.createContext();

@@ -162,3 +162,44 @@ test('the in-depth reference covers every declared member and is not stale', asy
     }
     assert.match(reference, /Signatures on this page are extracted from/);
 });
+
+
+test('the routing guide covers the behaviour the router actually has', async () => {
+    let [routing, recipes, largeProjects] = await Promise.all([
+        readFile(new URL('../docs/routing.html', import.meta.url), 'utf8'),
+        readFile(new URL('../docs/recipes.html', import.meta.url), 'utf8'),
+        readFile(new URL('../docs/large-projects.html', import.meta.url), 'utf8')
+    ]);
+
+    for (let topic of [
+        'The smallest router',
+        'Patterns and matching',
+        'Parameters',
+        'Hash or history',
+        'Each view runs in its own scope',
+        'Asynchronous views',
+        'Guards and redirects',
+        'Active links',
+        'Components as views',
+        'Stopping',
+        'Common mistakes'
+    ]) assert.match(routing, new RegExp(topic), `the guide is missing "${topic}"`);
+
+    // The two behaviours readers get wrong most often must be stated explicitly.
+    assert.match(routing, /scope\.disposed/, 'the guide must show the asynchronous guard');
+    assert.match(routing, /params\.rest === "\/deep\/path"/, 'the guide must show that * keeps the leading slash');
+    assert.match(routing, /params\.rest === "deep\/path"/, 'the guide must show that \/* drops it');
+    assert.match(routing, /replace/, 'the guide must cover redirecting without a history entry');
+
+    // These two pages predated router() and taught readers to hand-roll it.
+    for (let [name, page] of [['recipes', recipes], ['large-projects', largeProjects]]) {
+        assert.match(page, /sculptor\.router\(/, `${name} must use router() rather than a hand-rolled switcher`);
+        assert.doesNotMatch(page, /activeRoute/, `${name} still hand-rolls route disposal`);
+        assert.match(page, /routing\.html/, `${name} should link the routing guide`);
+    }
+    assert.doesNotMatch(
+        largeProjects,
+        /Keep route matching, guards, and URL parsing outside the runtime/,
+        'large-projects still advises against the shipped router'
+    );
+});

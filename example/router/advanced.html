@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Advanced routing · DOMSculptor</title>
+    <style>
+        :root { color-scheme: light dark; --line: rgba(128, 128, 128, 0.4); }
+        body { margin: 0; padding: 24px; font: 15px/1.6 system-ui, -apple-system, Segoe UI, sans-serif; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        h2 { font-size: 17px; margin: 0 0 10px; }
+        .lede { margin: 0 0 18px; opacity: 0.75; }
+        .bar { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .bar a, .bar button {
+            background: transparent; border: 1px solid var(--line); border-radius: 6px;
+            color: inherit; font: inherit; padding: 5px 11px; text-decoration: none;
+        }
+        .bar button { cursor: pointer; }
+        .bar a.active { background: rgba(128, 128, 128, 0.22); font-weight: 600; }
+        .bar .spacer { flex: 1; }
+        .who { font-size: 13px; opacity: 0.8; }
+        .layout { display: grid; gap: 16px; grid-template-columns: 1fr 300px; margin-top: 14px; }
+        @media (max-width: 780px) { .layout { grid-template-columns: 1fr; } }
+        #view { border: 1px solid var(--line); border-radius: 8px; min-height: 260px; padding: 18px; }
+        aside { border: 1px solid var(--line); border-radius: 8px; font-size: 13px; padding: 14px; }
+        aside h3 { font-size: 12px; letter-spacing: 0.05em; margin: 0 0 8px; text-transform: uppercase; opacity: 0.7; }
+        aside ul { list-style: none; margin: 0 0 14px; padding: 0; }
+        aside li { font-variant-numeric: tabular-nums; padding: 1px 0; }
+        code { background: rgba(128, 128, 128, 0.16); border-radius: 4px; padding: 1px 5px; }
+        .crumbs { font-size: 13px; margin-bottom: 10px; opacity: 0.75; }
+        .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+        .grid a { border: 1px solid var(--line); border-radius: 6px; color: inherit; display: block; padding: 10px; text-decoration: none; }
+        .notice { border-left: 3px solid var(--line); margin: 12px 0; padding: 6px 12px; }
+        label { display: block; margin-bottom: 10px; }
+        input { background: transparent; border: 1px solid var(--line); border-radius: 6px; color: inherit; font: inherit; padding: 6px 10px; width: 220px; }
+    </style>
+</head>
+<body>
+    <h1>Ten routes, with guards, redirects, and nested parameters</h1>
+    <p class="lede">
+        Every view owns its scope. Sign out and open Settings to watch the guard
+        redirect and then return you after signing in.
+    </p>
+    <div id="app"></div>
+
+    <script type="module">
+        import DomSculptor from '../../src/index.js';
+
+        let sculptor = new DomSculptor();
+
+        // ---- data ----------------------------------------------------------
+        let sections = {
+            start: { title: 'Getting started', pages: { install: 'Install', first: 'First element' } },
+            state: { title: 'Reactive state', pages: { signals: 'Signals', effects: 'Effects' } },
+            lists: { title: 'Collections', pages: { keyed: 'Keyed lists', virtual: 'Virtual lists' } }
+        };
+        let people = {
+            1: { name: 'Ada Lovelace', role: 'Author' },
+            2: { name: 'Grace Hopper', role: 'Maintainer' }
+        };
+        let slowly = value => new Promise(resolve => setTimeout(() => resolve(value), 500));
+
+        // ---- session and lifecycle log --------------------------------------
+        let user = sculptor.signal(null);
+        let intended = null;                       // where the guard interrupted
+        let events = sculptor.signal([]);
+        let log = message => events.update(list =>
+            [`${new Date().toLocaleTimeString()}  ${message}`, ...list].slice(0, 12));
+
+        let view = (name, build) => (...args) => {
+            log(`build    ${name}`);
+            let root = build(...args);
+            root.onDispose(() => log(`dispose  ${name}`));
+            return root;
+        };
+        let page = (heading, children = []) => sculptor.tree({
+            tag: 'div',
+            children: [{ tag: 'h2', text: heading }, ...children]
+        });
+        let link = (href, text) => ({ tag: 'a', attributes: { href }, text });
+        let crumbs = parts => ({
+            tag: 'div',
+            class: 'crumbs',
+            children: parts.flatMap((part, index) => (
+                index === 0 ? [part] : [{ tag: 'span', text: ' / ' }, part]
+            ))
+        });
+
+        // ---- views ----------------------------------------------------------
+        let Home = view('Home', () => page('Home', [
+            { tag: 'p', text: 'A documentation browser with ten routes.' },
+            { tag: 'div', class: 'grid', children: [
+                link('#/docs', 'Browse the docs'),
+                link('#/people/1', 'Ada Lovelace'),
+                link('#/search/keyed%20lists', 'Search: keyed lists'),
+                link('#/legacy/2', 'A legacy link that redirects')
+            ] }
+        ]));
+
+        let DocsIndex = view('DocsIndex', () => page('Documentation', [
+            crumbs([link('#/', 'Home'), { tag: 'span', text: 'Docs' }]),
+            { tag: 'div', class: 'grid', children:
+                Object.entries(sections).map(([id, section]) => link(`#/docs/${id}`, section.title)) }
+        ]));
+
+        let Section = view('Section', ({ params }) => {
+            let section = sections[params.section];
+            if (!section) return page('Unknown section', [
+                { tag: 'p', text: `There is no section called "${params.section}".` },
+                { tag: 'p', children: [link('#/docs', '← All sections')] }
+            ]);
+            return page(section.title, [
+                crumbs([link('#/', 'Home'), link('#/docs', 'Docs'), { tag: 'span', text: section.title }]),
+                { tag: 'div', class: 'grid', children: Object.entries(section.pages)
+                    .map(([id, title]) => link(`#/docs/${params.section}/${id}`, title)) }
+            ]);
+        });
+
+        // Two parameters in one pattern.
+        let Page = view('Page', ({ params }) => {
+            let section = sections[params.section];
+            let title = section?.pages[params.page];
+            if (!title) return page('Unknown page', [
+                { tag: 'p', text: `No page "${params.page}" in "${params.section}".` },
+                { tag: 'p', children: [link('#/docs', '← All sections')] }
+            ]);
+            return page(title, [
+                crumbs([
+                    link('#/', 'Home'), link('#/docs', 'Docs'),
+                    link(`#/docs/${params.section}`, section.title),
+                    { tag: 'span', text: title }
+                ]),
+                { tag: 'p', text: `You are reading ${title.toLowerCase()}.` }
+            ]);
+        });
+
+        // Asynchronous load, abandoned correctly if the reader leaves first.
+        let Person = view('Person', ({ params, scope }) => {
+            let person = sculptor.signal(null);
+            let missing = sculptor.signal(false);
+            let refs = {};
+            let root = sculptor.tree({
+                tag: 'div',
+                refs,
+                children: [
+                    { tag: 'h2', ref: 'title', text: 'Loading…' },
+                    { tag: 'p', ref: 'role' },
+                    { tag: 'p', ref: 'actions' }
+                ]
+            });
+            slowly(people[params.id]).then(found => {
+                if (scope.disposed) return log(`ignored  late response for person ${params.id}`);
+                if (!found) return missing.set(true);
+                person.set(found);
+            });
+            person.subscribe(value => {
+                if (!value) return;
+                refs.title.setText(value.name);
+                refs.role.setText(value.role);
+                refs.actions.child.append(sculptor.tree(link(`#/people/${params.id}/settings`, 'Settings →')));
+            });
+            missing.subscribe(() => {
+                refs.title.setText('No such person');
+                refs.role.setText(`Nobody has id ${params.id}.`);
+            });
+            return root;
+        });
+
+        // A guarded route. Redirecting from inside a view is safe: the router
+        // schedules the next render, so this view still returns an element and is
+        // disposed a moment later.
+        let Settings = view('Settings', ({ params }) => {
+            if (!user.get()) {
+                intended = `/people/${params.id}/settings`;
+                log('guard    not signed in, redirecting to /login');
+                router.replace('/login');
+                return page('Redirecting…');
+            }
+            return page('Settings', [
+                crumbs([link('#/', 'Home'), link(`#/people/${params.id}`, 'Profile'), { tag: 'span', text: 'Settings' }]),
+                { tag: 'p', text: `Signed in as ${user.get()}.` },
+                { tag: 'div', class: 'notice', text: 'Only reachable while signed in.' }
+            ]);
+        });
+
+        let Login = view('Login', () => {
+            let refs = {};
+            let root = sculptor.tree({
+                tag: 'div',
+                refs,
+                children: [
+                    { tag: 'h2', text: 'Sign in' },
+                    { tag: 'div', class: 'notice', ref: 'why' },
+                    { tag: 'form', ref: 'form', children: [
+                        { tag: 'label', children: [
+                            { tag: 'span', text: 'Name ' },
+                            { tag: 'input', ref: 'name', attributes: { value: 'Ada', 'aria-label': 'Name' } }
+                        ] },
+                        { tag: 'button', text: 'Sign in' }
+                    ] }
+                ]
+            });
+            refs.why.setText(intended
+                ? `Sign in to continue to ${intended}.`
+                : 'Sign in to reach the guarded route.');
+            refs.form.on('submit', event => {
+                event.preventDefault();
+                user.set(refs.name.getValue() || 'Ada');
+                let target = intended || '/';
+                intended = null;
+                log(`signed in, returning to ${target}`);
+                router.replace(target);
+            });
+            return root;
+        });
+
+        // A catch-all inside a prefix: everything after /search/ arrives as rest.
+        let Search = view('Search', ({ params }) => page(`Search: ${params.rest}`, [
+            crumbs([link('#/', 'Home'), { tag: 'span', text: 'Search' }]),
+            { tag: 'p', text: `Everything after the prefix arrives as one parameter.` },
+            { tag: 'p', children: [{ tag: 'code', text: `params.rest = ${JSON.stringify(params.rest)}` }] }
+        ]));
+
+        // An old URL shape kept working, without leaving a history entry behind.
+        let Legacy = view('Legacy', ({ params }) => {
+            log(`redirect  /legacy/${params.id} → /people/${params.id}`);
+            router.replace(`/people/${params.id}`);
+            return page('Redirecting…');
+        });
+
+        let NotFound = view('NotFound', ({ params }) => page('Not found', [
+            { tag: 'p', text: `Nothing is routed at ${params.rest}.` },
+            { tag: 'p', children: [link('#/', '← Home')] }
+        ]));
+
+        // ---- shell ----------------------------------------------------------
+        let refs = {};
+        sculptor.mount(sculptor.tree({
+            tag: 'div',
+            refs,
+            children: [
+                { tag: 'div', class: 'bar', ref: 'nav' },
+                { tag: 'div', class: 'layout', children: [
+                    { tag: 'div', attributes: { id: 'view' }, ref: 'outlet' },
+                    { tag: 'aside', children: [
+                        { tag: 'h3', text: 'Matched route' },
+                        { tag: 'ul', children: [
+                            { tag: 'li', ref: 'pattern' },
+                            { tag: 'li', ref: 'params' }
+                        ] },
+                        { tag: 'h3', text: 'Lifecycle' },
+                        { tag: 'ul', children: {
+                            each: events,
+                            render: line => sculptor.tree({ tag: 'li', text: line })
+                        } }
+                    ], ref: 'aside' }
+                ] }
+            ]
+        }), '#app');
+
+        // ---- the router -------------------------------------------------------
+        let router = sculptor.router({
+            '/': Home,
+            '/docs': DocsIndex,
+            '/docs/:section': Section,
+            '/docs/:section/:page': Page,
+            '/people/:id': Person,
+            '/people/:id/settings': Settings,
+            '/search/*': Search,
+            '/legacy/:id': Legacy,
+            '/login': Login,
+            '*': NotFound
+        }, { parent: refs.outlet, hash: true });
+
+        // The sidebar reads the router rather than tracking navigation itself.
+        router.current.subscribe(snapshot => {
+            refs.pattern.setText(`pattern: ${snapshot.route ?? '(none)'}`);
+            refs.params.setText(`params: ${JSON.stringify(snapshot.params)}`);
+        }, { immediate: true });
+
+        // Active links match on prefix, so a nested page keeps its section lit.
+        for (let [href, label, prefix] of [
+            ['#/', 'Home', '/'],
+            ['#/docs', 'Docs', '/docs'],
+            ['#/people/1', 'Ada', '/people/1'],
+            ['#/people/1/settings', 'Settings', '/people/1/settings'],
+            ['#/search/keyed%20lists', 'Search', '/search'],
+            ['#/nowhere', 'Broken link', '/nowhere']
+        ]) {
+            refs.nav.child.append(sculptor.tree({
+                tag: 'a',
+                attributes: { href },
+                text: label,
+                class: {
+                    active: sculptor.computed(() => {
+                        let path = router.current.get().path;
+                        return prefix === '/' ? path === '/' : path.startsWith(prefix);
+                    })
+                }
+            }));
+        }
+        refs.nav.child.append(sculptor.tree({ tag: 'span', class: 'spacer' }));
+        refs.nav.child.append(sculptor.tree({
+            tag: 'span',
+            class: 'who',
+            text: sculptor.computed(() => (user.get() ? `signed in as ${user.get()}` : 'signed out'))
+        }));
+        refs.nav.child.append(sculptor.tree({
+            tag: 'button',
+            text: sculptor.computed(() => (user.get() ? 'Sign out' : 'Sign in')),
+            on: {
+                click: () => {
+                    if (user.get()) {
+                        user.set(null);
+                        log('signed out');
+                        return;
+                    }
+                    router.navigate('/login');
+                }
+            }
+        }));
+        refs.nav.child.append(sculptor.tree({
+            tag: 'button', text: 'Back', on: { click: () => history.back() }
+        }));
+
+        window.routerExample = { sculptor, router, user };
+    </script>
+</body>
+</html>

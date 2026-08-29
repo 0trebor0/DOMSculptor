@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Router example · DOMSculptor</title>
+    <style>
+        :root { color-scheme: light dark; }
+        body { margin: 0; padding: 24px; font: 15px/1.6 system-ui, -apple-system, Segoe UI, sans-serif; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        .lede { margin: 0 0 20px; opacity: 0.75; }
+        nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+        nav a {
+            border: 1px solid rgba(128, 128, 128, 0.5);
+            border-radius: 6px;
+            color: inherit;
+            padding: 6px 12px;
+            text-decoration: none;
+        }
+        nav a.active { background: rgba(128, 128, 128, 0.22); font-weight: 600; }
+        #view { border: 1px solid rgba(128, 128, 128, 0.4); border-radius: 8px; min-height: 160px; padding: 18px; }
+        #log { font-size: 13px; margin-top: 16px; opacity: 0.75; }
+        #log li { font-variant-numeric: tabular-nums; }
+        ul.posts { padding-left: 20px; }
+        button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(128,128,128,0.5); background: transparent; color: inherit; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Routing, with each view owning its own lifetime</h1>
+    <p class="lede">
+        Every navigation disposes the previous view and its scope. The log records
+        each build and teardown, so you can watch it happen.
+    </p>
+    <div id="app"></div>
+
+    <script type="module">
+        import DomSculptor from '../../src/index.js';
+
+        let sculptor = new DomSculptor();
+        let posts = [
+            { slug: 'keyed-lists', title: 'Why keyed lists keep their nodes' },
+            { slug: 'disposal', title: 'Disposal as a default, not a discipline' },
+            { slug: 'virtual', title: '9,000 records, 30 rows' }
+        ];
+
+        // A pretend API, slow enough that you can navigate away mid-request.
+        let fetchPost = slug => new Promise(resolve =>
+            setTimeout(() => resolve(posts.find(post => post.slug === slug)), 600));
+
+        let events = sculptor.signal([]);
+        let log = message => events.update(list =>
+            [`${new Date().toLocaleTimeString()}  ${message}`, ...list].slice(0, 8));
+
+        // ---- views ---------------------------------------------------------
+        // A view is any function returning an element. It runs inside a scope the
+        // router creates, so signals and subscriptions made here are released when
+        // the route changes.
+
+        let Home = () => {
+            log('built  Home');
+            let root = sculptor.tree({
+                tag: 'div',
+                children: [
+                    { tag: 'h2', text: 'Home' },
+                    { tag: 'p', text: 'Pick a post. Each one loads asynchronously.' },
+                    {
+                        tag: 'ul',
+                        class: 'posts',
+                        children: posts.map(post => ({
+                            tag: 'li',
+                            children: [{
+                                tag: 'a',
+                                attributes: { href: `#/posts/${post.slug}` },
+                                text: post.title
+                            }]
+                        }))
+                    }
+                ]
+            });
+            root.onDispose(() => log('disposed  Home'));
+            return root;
+        };
+
+        let Post = ({ params, scope }) => {
+            log(`built  Post(${params.slug})`);
+            let post = sculptor.signal(null);
+            let failed = sculptor.signal(false);
+
+            let refs = {};
+            let root = sculptor.tree({
+                tag: 'div',
+                refs,
+                children: [
+                    { tag: 'h2', ref: 'title', text: 'Loading…' },
+                    { tag: 'p', ref: 'body' },
+                    { tag: 'p', children: [{ tag: 'a', attributes: { href: '#/' }, text: '← Back' }] }
+                ]
+            });
+
+            fetchPost(params.slug).then(found => {
+                // The reader may have navigated away while this was in flight. The
+                // scope says whether this route is still on screen; without the
+                // guard these writes would land on a disposed signal.
+                if (scope.disposed) return log(`ignored  late response for ${params.slug}`);
+                if (!found) return failed.set(true);
+                post.set(found);
+            });
+
+            post.subscribe(value => {
+                if (!value) return;
+                refs.title.setText(value.title);
+                refs.body.setText(`Slug: ${value.slug}`);
+            });
+            failed.subscribe(() => {
+                refs.title.setText('Not found');
+                refs.body.setText(`No post called "${params.slug}".`);
+            });
+
+            root.onDispose(() => log(`disposed  Post(${params.slug})`));
+            return root;
+        };
+
+        let NotFound = ({ params }) => {
+            log(`built  NotFound(${params.rest})`);
+            let root = sculptor.tree({
+                tag: 'div',
+                children: [
+                    { tag: 'h2', text: 'Not found' },
+                    { tag: 'p', text: `Nothing is routed at ${params.rest}.` },
+                    { tag: 'p', children: [{ tag: 'a', attributes: { href: '#/' }, text: '← Back' }] }
+                ]
+            });
+            root.onDispose(() => log('disposed  NotFound'));
+            return root;
+        };
+
+        // ---- shell ---------------------------------------------------------
+        let refs = {};
+        sculptor.mount(sculptor.tree({
+            tag: 'div',
+            refs,
+            children: [
+                { tag: 'nav', ref: 'nav' },
+                { tag: 'div', attributes: { id: 'view' }, ref: 'outlet' },
+                {
+                    tag: 'div',
+                    attributes: { id: 'log' },
+                    children: [
+                        { tag: 'strong', text: 'Lifecycle' },
+                        {
+                            tag: 'ul',
+                            // Reactive children: the list is the container's contents.
+                            children: {
+                                each: events,
+                                render: line => sculptor.tree({ tag: 'li', text: line })
+                            }
+                        }
+                    ]
+                }
+            ]
+        }), '#app');
+
+        // ---- the router ----------------------------------------------------
+        // hash: true routes on the fragment, so this works from the file system
+        // and from static hosting with no server rewrites.
+        let router = sculptor.router({
+            '/': Home,
+            '/posts/:slug': Post,
+            '*': NotFound
+        }, { parent: refs.outlet, hash: true });
+
+        // Navigation links, with the active one bound to the router's own snapshot
+        // rather than tracked separately.
+        for (let [href, label] of [
+            ['#/', 'Home'],
+            ['#/posts/keyed-lists', 'Keyed lists'],
+            ['#/posts/missing', 'Missing post'],
+            ['#/nowhere', 'Unrouted path']
+        ]) {
+            refs.nav.child.append(sculptor.tree({
+                tag: 'a',
+                attributes: { href },
+                text: label,
+                class: {
+                    active: sculptor.computed(() => `#${router.current.get().path}` === href)
+                }
+            }));
+        }
+
+        refs.nav.child.append(sculptor.tree({
+            tag: 'button',
+            text: 'Back',
+            on: { click: () => history.back() }
+        }));
+
+        window.routerExample = { sculptor, router };
+    </script>
+</body>
+</html>

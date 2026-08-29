@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
-    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./recipes.html">Recipes</a><a href="./api.html">API</a><a href="./reference.html">Reference</a><a href="./examples.html">Examples</a></nav>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./recipes.html">Recipes</a><a href="./api.html">API</a><a href="./reference.html">Reference</a><a href="./routing.html">Routing</a><a href="./examples.html">Examples</a></nav>
   </header>
   <main class="examples-page">
     <section class="hero">
@@ -39,17 +39,14 @@
 
     <section>
       <h2>Routing with browser APIs</h2>
-      <pre><code>let active = null;
-
-function navigate(url) {
-  history.pushState(null, "", url);
-  active?.dispose();
-  active = routes.get(location.pathname)();
-  sculptor.mount(active, "#app");
-}
-
-addEventListener("popstate", () =&gt; navigate(location.href));</code></pre>
-      <p>Dispose the previous route before mounting the next. Keep route matching, guards, and URL parsing outside the runtime.</p>
+      <pre><code>const router = sculptor.router({
+  "/": Home,
+  "/features/:name": ({ params }) =&gt; Feature({ name: params.name }),
+  "/features/:name/*": ({ params }) =&gt; FeatureDetail({ name: params.name, rest: params.rest }),
+  "*": NotFound
+}, { parent: "#app" });</code></pre>
+      <p>One route is mounted at a time and each view runs in its own disposal scope, so leaving a feature releases everything it created. Back and forward arrive through <code>popstate</code>; pass <code>{ hash: true }</code> for static hosting that cannot rewrite server paths.</p>
+      <p>Put a guard in the view itself: check your session, call <code>router.replace("/login")</code>, and return a placeholder. Redirecting from inside a view is safe, because the router schedules the next render rather than reentering. The <a href="./routing.html">routing guide</a> covers guards, redirects, and active links.</p>
     </section>
 
     <section>

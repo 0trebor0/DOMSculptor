@@ -129,6 +129,9 @@ Save this as an HTML file and open it in a browser:
 - [Declarative trees](#tree-creation), [conditional UI](#conditional-rendering), and [routing](#routing)
 - [Components, contexts, and disposal scopes](#components-and-disposal-scopes)
 
+Routing has its own [guide](docs/routing.html): patterns, parameters, the two
+catch-all forms, view scopes, guards, redirects, and active links.
+
 Continue with the [practical recipes](docs/recipes.html), keep the
 [in-depth reference](docs/reference.html) open while coding — every member with
 its signature, parameters, return value, failures, and a worked example — or read
@@ -145,6 +148,15 @@ Two things in this repository run as they are, with no build step:
   <http://127.0.0.1:8123/>. Its README records what building it found.
 - `test/virtual-9000.html` — 9,000 records against a few dozen mounted rows, with
   a live panel and refresh, jump, and dispose controls.
+- [`example/router`](example/router/index.html) — routing with parameters, a
+  catch-all, active navigation links, and a slow request that is correctly
+  abandoned when you navigate away. Its
+  [`advanced.html`](example/router/advanced.html) covers ten routes: two-parameter
+  patterns, a prefixed catch-all, a redirect from a legacy URL shape, and a
+  guarded route that bounces to sign-in and returns you afterwards. Both carry a
+  lifecycle log showing each view being built and disposed.
+  `node example/realworld/serve.mjs` serves the repository; open
+  <http://127.0.0.1:8123/example/router/>.
 
 ## Creating Elements
 

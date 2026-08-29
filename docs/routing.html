@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Routing in DOMSculptor: patterns, parameters, view scopes, guards, redirects, and active links.">
+  <title>Routing guide · DOMSculptor</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./reference.html">Reference</a><a href="./recipes.html">Recipes</a><a href="./examples.html">Examples</a></nav>
+  </header>
+  <aside aria-label="Guide navigation">
+    <strong>Routing guide</strong>
+    <a href="#start">The smallest router</a>
+    <a href="#patterns">Patterns and matching</a>
+    <a href="#params">Parameters</a>
+    <a href="#catchall">Catch-alls</a>
+    <a href="#mode">Hash or history</a>
+    <a href="#scopes">View scopes</a>
+    <a href="#async">Asynchronous views</a>
+    <a href="#guards">Guards and redirects</a>
+    <a href="#links">Active links</a>
+    <a href="#components">Components as views</a>
+    <a href="#stopping">Stopping</a>
+    <a href="#mistakes">Common mistakes</a>
+  </aside>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Guide</p>
+      <h1>Routing, and why each view owns its lifetime.</h1>
+      <p class="lede">
+        <code>router()</code> maps path patterns to views, keeps one mounted, and disposes the
+        previous view <em>and its scope</em> on every change. That last part is the reason it
+        exists: without it, every route change leaks whatever the view created.
+      </p>
+      <p class="note">
+        Two runnable examples accompany this guide:
+        <code>example/router/index.html</code> for the basics, and
+        <code>example/router/advanced.html</code> for ten routes with guards, redirects, and
+        nested parameters. Each has a verifier that drives it in a real browser.
+      </p>
+    </section>
+
+    <section id="start">
+      <p class="eyebrow">Step one</p>
+      <h2>The smallest router</h2>
+      <p>A route is a pattern and a function returning an element. Nothing else is required.</p>
+      <pre><code>const router = sculptor.router({
+  "/": () =&gt; sculptor.tree({ tag: "h1", text: "Home" }),
+  "/about": () =&gt; sculptor.tree({ tag: "h1", text: "About" })
+}, { parent: "#app" });</code></pre>
+      <p>
+        The matching route mounts immediately. <code>router.navigate("/about")</code> changes
+        route programmatically, and ordinary links work too once you choose a mode.
+      </p>
+    </section>
+
+    <section id="patterns">
+      <p class="eyebrow">Matching</p>
+      <h2>Patterns and matching</h2>
+      <p>
+        Patterns are split on <code>/</code>. A segment beginning <code>:</code> captures that
+        segment; <code>*</code> matches anything; every other segment is matched literally, with
+        regular-expression characters escaped.
+      </p>
+      <pre><code>"/docs"                  // exactly /docs
+"/docs/:section"         // /docs/state
+"/docs/:section/:page"   // /docs/state/effects
+"/a.b"                   // exactly /a.b — never /axb</code></pre>
+      <p>
+        That last line matters more than it looks. A dot in a literal segment is a dot, not "any
+        character", so a route containing a version number or a filename matches only itself.
+      </p>
+      <p class="note">
+        Routes are tried in the order they are declared, and the first match wins. Put
+        <code>*</code> last.
+      </p>
+    </section>
+
+    <section id="params">
+      <p class="eyebrow">Data from the URL</p>
+      <h2>Parameters</h2>
+      <p>
+        Every view receives a snapshot: <code>{ path, route, params, scope }</code>.
+        <code>params</code> holds the captured segments, already URL-decoded.
+      </p>
+      <pre><code>"/people/:id": ({ params }) =&gt; Person({ id: params.id })
+
+// #/people/ada%20lovelace  →  params.id === "ada lovelace"</code></pre>
+      <p>
+        <code>route</code> is the pattern that matched, which is useful for analytics and for
+        deciding what a breadcrumb should say. <code>path</code> is the actual path.
+      </p>
+    </section>
+
+    <section id="catchall">
+      <p class="eyebrow">The part that surprises people</p>
+      <h2>Catch-alls: <code>*</code> and <code>/*</code> are different</h2>
+      <p>
+        <code>*</code> is a whole-path wildcard. It captures everything, including the leading
+        slash. <code>/*</code> anchors that slash as a literal, so the capture is the remainder.
+      </p>
+      <pre><code>"*"          // /deep/path  →  params.rest === "/deep/path"
+"/*"         // /deep/path  →  params.rest === "deep/path"
+"/search/*"  // /search/keyed lists  →  params.rest === "keyed lists"</code></pre>
+      <p>
+        Use a bare <code>*</code> for a not-found route, and a prefixed form such as
+        <code>/search/*</code> or <code>/files/*</code> when you want everything below a path as
+        one value.
+      </p>
+    </section>
+
+    <section id="mode">
+      <p class="eyebrow">Choosing a mode</p>
+      <h2>Hash or history</h2>
+      <p>
+        By default the router reads <code>location.pathname</code> and navigates with
+        <code>pushState</code>, which needs a server that returns your application for every URL.
+        Pass <code>{ hash: true }</code> to route on the fragment instead.
+      </p>
+      <pre><code>sculptor.router(routes, { parent: "#app" });                // /posts/hello
+sculptor.router(routes, { parent: "#app", hash: true });    // #/posts/hello</code></pre>
+      <p>
+        Hash mode works from the file system, from static hosting with no rewrite rules, and
+        inside browser extensions. Back and forward work in both modes, through
+        <code>popstate</code> and <code>hashchange</code> respectively.
+      </p>
+    </section>
+
+    <section id="scopes">
+      <p class="eyebrow">The reason the router exists</p>
+      <h2>Each view runs in its own scope</h2>
+      <p>
+        A view function runs inside a disposal scope the router creates. Signals, computed values,
+        effects, subscriptions, and elements made there belong to the route, and are released when
+        you leave it.
+      </p>
+      <pre><code>"/dashboard": () =&gt; {
+  const tick = sculptor.signal(0);
+  const timer = setInterval(() =&gt; tick.update(n =&gt; n + 1), 1000);
+  const root = sculptor.tree({ tag: "p", text: sculptor.computed(() =&gt; String(tick.get())) });
+
+  root.onDispose(() =&gt; clearInterval(timer));   // your own resources still need this
+  return root;                                  // the signal and computed do not
+}</code></pre>
+      <p>
+        The scope is disposed <em>before</em> the view's elements, and a scope releases in reverse
+        order of creation, so a subscription made after the element it writes into is released
+        first. Create the element, then subscribe, and a callback cannot outlive what it renders
+        into.
+      </p>
+    </section>
+
+    <section id="async">
+      <p class="eyebrow">Slow work</p>
+      <h2>Asynchronous views</h2>
+      <p>
+        A request can outlive its route. The snapshot's <code>scope</code> answers whether the
+        route is still on screen, which is the guard that keeps a late response from writing into
+        a disposed view.
+      </p>
+      <pre><code>"/posts/:slug": ({ params, scope }) =&gt; {
+  const post = sculptor.signal(null);
+
+  loadPost(params.slug).then(value =&gt; {
+    if (scope.disposed) return;   // the reader navigated away; drop it
+    post.set(value);
+  });
+
+  return sculptor.tree({
+    tag: "article",
+    text: sculptor.computed(() =&gt; post.get()?.title ?? "Loading…")
+  });
+}</code></pre>
+      <p class="note">
+        Without the guard, <code>post.set(value)</code> throws, because writing to a disposed
+        signal is an error rather than a silent no-op. That is deliberate: it turns a whole class
+        of leak into a visible failure.
+      </p>
+    </section>
+
+    <section id="guards">
+      <p class="eyebrow">Access and redirects</p>
+      <h2>Guards and redirects</h2>
+      <p>
+        A guard is an early return in the view. Redirecting from inside a view is safe: the router
+        schedules the next render rather than reentering, so this view still returns an element
+        and is disposed a moment later.
+      </p>
+      <pre><code>let intended = null;
+
+const Settings = ({ params }) =&gt; {
+  if (!session.user.get()) {
+    intended = `/people/${params.id}/settings`;
+    router.replace("/login");
+    return sculptor.tree({ tag: "p", text: "Redirecting…" });
+  }
+  return SettingsView({ id: params.id });
+};
+
+const Login = () =&gt; {
+  // …on success:
+  const target = intended || "/";
+  intended = null;
+  router.replace(target);
+};</code></pre>
+      <p>
+        Use <code>replace</code> rather than <code>navigate</code> for a redirect, so the
+        intermediate URL does not become a history entry the back button returns to. The same
+        pattern keeps an old URL shape working:
+      </p>
+      <pre><code>"/legacy/:id": ({ params }) =&gt; {
+  router.replace(`/people/${params.id}`);
+  return sculptor.tree({ tag: "p", text: "Redirecting…" });
+}</code></pre>
+    </section>
+
+    <section id="links">
+      <p class="eyebrow">Navigation state</p>
+      <h2>Active links</h2>
+      <p>
+        <code>router.current</code> is a readable snapshot, so a link's active state is a binding
+        rather than something you track alongside the router.
+      </p>
+      <pre><code>sculptor.tree({
+  tag: "a",
+  attributes: { href: "#/docs" },
+  text: "Docs",
+  class: {
+    active: sculptor.computed(() =&gt; router.current.get().path.startsWith("/docs"))
+  }
+});</code></pre>
+      <p>
+        Matching on a prefix keeps a section highlighted while a nested page is open. Compare
+        exactly (<code>=== "/"</code>) for a home link, or every route would light it up.
+      </p>
+      <p>The same snapshot drives titles and breadcrumbs:</p>
+      <pre><code>router.current.subscribe(snapshot =&gt; {
+  document.title = snapshot.route === "/" ? "Home" : `${snapshot.path} · Docs`;
+}, { immediate: true });</code></pre>
+    </section>
+
+    <section id="components">
+      <p class="eyebrow">Composition</p>
+      <h2>Components as views</h2>
+      <p>
+        A view may return a <code>DomElement</code> or a component instance, so
+        <code>sculptor.component()</code> factories work directly and receive the snapshot as
+        props.
+      </p>
+      <pre><code>const Post = sculptor.component(({ slug }) =&gt; {
+  const root = sculptor.tree({ tag: "article", text: slug });
+  return { root, api: { refresh: () =&gt; {} } };
+});
+
+sculptor.router({ "/posts/:slug": ({ params }) =&gt; Post({ slug: params.slug }) }, { parent: "#app" });</code></pre>
+      <p>
+        A component brings its own scope, which the router disposes along with the one it created
+        for the view.
+      </p>
+    </section>
+
+    <section id="stopping">
+      <p class="eyebrow">Teardown</p>
+      <h2>Stopping</h2>
+      <p>
+        <code>stop()</code> removes the listener, disposes the mounted view and its scope, and is
+        idempotent. The runtime owns the router, so disposing the runtime stops it too — you
+        rarely need to call <code>stop()</code> yourself.
+      </p>
+      <pre><code>router.stop();
+router.stopped;      // true
+
+sculptor.dispose();  // also stops every router the runtime owns</code></pre>
+    </section>
+
+    <section id="mistakes">
+      <p class="eyebrow">Worth knowing</p>
+      <h2>Common mistakes</h2>
+      <div class="reference">
+        <article>
+          <h3>Expecting <code>*</code> to drop the leading slash</h3>
+          <p>It does not. Use <code>/*</code> when you want the remainder without it.</p>
+        </article>
+        <article>
+          <h3>Writing to a signal after leaving the route</h3>
+          <p>Guard asynchronous continuations with <code>scope.disposed</code>. The write throws otherwise.</p>
+        </article>
+        <article>
+          <h3>Using <code>navigate</code> for a redirect</h3>
+          <p>It leaves the intermediate URL in history, so the back button lands on the route that redirected. Use <code>replace</code>.</p>
+        </article>
+        <article>
+          <h3>Highlighting a home link with a prefix match</h3>
+          <p><code>"/".startsWith("/")</code> is true for every path. Compare exactly for the root.</p>
+        </article>
+        <article>
+          <h3>Unwinding a route by hand</h3>
+          <p>Disposing the previous view yourself is what the router already does. If you find yourself keeping an <code>activeRoute</code> variable, you are re-implementing it.</p>
+        </article>
+        <article>
+          <h3>Putting <code>*</code> first</h3>
+          <p>The first matching pattern wins, and <code>*</code> matches everything. Declare it last.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+  <footer><span>DOMSculptor routing guide</span><span>Apache-2.0</span></footer>
+</body>
+</html>

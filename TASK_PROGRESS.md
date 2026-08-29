@@ -1076,6 +1076,38 @@ declaration requires a component factory or instance. Types being stricter than
 the runtime is the safe direction, and the documented pattern - a module whose
 default export is a component - satisfies both, so it was left alone.
 
+## Routing documentation
+
+Asked whether the docs had a routing guide, the answer was no - and two of the
+three places that mentioned routing were **actively wrong**, both predating
+`router()` shipping:
+
+- `docs/recipes.html`, "Own a route lifetime", kept an `activeRoute` variable,
+  disposed it by hand, and wired a `pagehide` listener. It never mentioned
+  `router()`.
+- `docs/large-projects.html`, "Routing with browser APIs", hand-rolled
+  `pushState`, a `Map` of routes, and a `popstate` listener, then advised keeping
+  "route matching, guards, and URL parsing outside the runtime" - advice against
+  the router the library now ships.
+
+A reader following either wrote worse code than the library supports, and did the
+manual disposal `router()` exists to remove. Both now use it.
+
+`docs/routing.html` is the guide: the smallest router, patterns and literal-segment
+escaping, parameters, the two catch-all forms, hash versus history, view scopes and
+why they are the reason the router exists, asynchronous views and the
+`scope.disposed` guard, guards and redirects with `replace`, active links bound to
+`current`, components as views, stopping, and six common mistakes.
+
+Its code is drawn from the two verified examples rather than invented, so
+everything in it is known to run.
+
+**Guarded by a test** that fails if the guide loses a section, stops showing the
+`scope.disposed` guard or the `*` versus `/*` distinction, or if either corrected
+page reverts to hand-rolling routes. Every docs page was also rendered in a browser
+with every internal link followed: 7 pages, 36 links, none broken, no console
+errors.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:

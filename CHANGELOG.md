@@ -7,6 +7,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `docs/routing.html`, a routing guide covering patterns and matching, parameters,
+  the two catch-all forms, hash versus history mode, view scopes, asynchronous
+  views, guards and redirects, active links, components as views, stopping, and
+  the mistakes readers make most.
 - `docs/reference.html`, an in-depth reference covering all 207 declared members
   with signature, description, parameters, return value, failure modes, and a
   worked example where one helps. Signatures are extracted from
@@ -152,6 +156,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Corrected two documentation pages that predated `router()` and taught readers to
+  hand-roll it. The "Own a route lifetime" recipe kept an `activeRoute` variable
+  and disposed it by hand, and the large-project guide built its own `pushState`
+  and `popstate` switcher while advising that route matching and guards be kept
+  "outside the runtime". Both now use `router()`, which does that work and
+  disposes each view's scope with it.
 - Documented that `tree()`'s `properties` writes native properties verbatim and
   can therefore reach `innerHTML`, making it a deliberate escape hatch rather
   than a text path, and that an attribute name must never be built from
