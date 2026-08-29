@@ -9,12 +9,17 @@ Use this checklist from a clean working tree on the intended release commit.
 - Install the declared Playwright browser versions.
 - Run `npm run check`.
 - Run `npm run test:browser` and require Chromium, Firefox, and WebKit to pass.
+- Run `npm run test:api` and require every reachable public member to be
+  exercised with no failures.
 - Run `npm run benchmark` and record the runtime, browser, medians, variance,
   memory result, and compressed bundle sizes.
 - Run `npm pack --dry-run --json` and inspect every published path.
-- Confirm both production bundles remain within the 10 KB gzip budget.
+- Confirm both production bundles remain within the 13 KB gzip budget that
+  `npm run size` enforces.
 - Confirm `src` contains only `index.js`.
 - Review the migration guide, compatibility policy, and versioned CDN URLs.
+- Confirm the version matches the changes: a release containing anything under
+  the changelog's breaking notes needs a major version, not a minor one.
 
 ## Release
 

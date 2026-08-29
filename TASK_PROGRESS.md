@@ -822,6 +822,54 @@ signals with subscriptions:
 That is roughly 100 nanoseconds per disposed resource — the deliberate price of
 releasing ownership entries so they cannot accumulate.
 
+## Files
+
+`AGENTS.md` requires this list; it was missing until now. 48 files, +7,657 / -83.
+
+**Runtime and published surface (modified)**
+
+- `src/index.js` — the only runtime file. Automatic tracking, runtime ownership,
+  routing, virtualization, the keyed reconciler, the disposal rework, the
+  convenience-export fix, the `tree()` additions, scope-owned subscriptions, and
+  the `append`/`asyncState`/`bindHidden` contract changes.
+- `types/index.d.ts` — `TreeList`, `RouteViewSnapshot`, tree `ref`/`refs`,
+  reactive `class`/`attributes`, the `classToggle` map overload, and the
+  `asyncState` return type.
+- `package.json` — `test:api` script, extended `lint`, negated `files` entries.
+- `dist/domsculptor.min.js`, `dist/domsculptor.esm.min.js` — rebuilt.
+
+**Tests (modified, plus one added)**
+
+- `test/index.test.mjs` — 144 tests, up from 128 at the start.
+- `test/browser.html` — real-DOM coverage; 125/124/124 assertions.
+- `test/api-audit.mjs` *(new)* — 35 probes over all 158 public members.
+
+**Documentation (modified)**
+
+- `README.md`, `CHANGELOG.md`, `TASK_PROGRESS.md`, `docs/api.html`,
+  `docs/index.html`, `docs/examples.html`, `docs/recipes.html`,
+  `docs/releasing.md`.
+
+**Benchmarks (added)**
+
+- `benchmark/js-framework-benchmark/` — the keyed entry, 5 files.
+- `benchmark/jsfb-verify.mjs` — 20 checks against the real DOM.
+- `benchmark/compare/` — the five-framework harness, 11 files including its own
+  lockfile.
+
+**Example (added)**
+
+- `example/realworld/` — 15 files: the app, its server, its README, and a
+  25-check verifier.
+
+**Also modified:** `.gitignore` (the comparison harness's dependencies and both
+build outputs).
+
+**Inspected but unchanged:** `test/package.test.mjs`, `test/docs.test.mjs`,
+`test/security.test.mjs`, `test/size.test.mjs`, `benchmark/run.mjs`,
+`webpack.config.cjs`, `testing/index.d.ts`, `lazy/index.d.ts`, `.npmignore`,
+`AGENTS.md`, `VIRTUALIZATION_PLAN.md`.
+
 ## Risks / limitations
 
 - Size headroom is now ~2 KB after the budget was raised to 12 KB
@@ -860,4 +908,9 @@ releasing ownership entries so they cannot accumulate.
   into `benchmark/compare/node_modules`. They are confined to that directory's
   own `package.json`, ignored by git, and excluded from the npm tarball, so the
   library itself stays dependency-free.
-- Nothing is committed; all changes remain in the working tree.
+- **The version is still 2.0.0 and the release is breaking.** `child.append()`'s
+  return value, `asyncState.run()`'s contract, `bindHidden()`'s mechanism,
+  dependency-less `computed()`/`effect()`, and the timing of dispose hooks all
+  changed. `docs/releasing.md` now says to check this, and `test/package.test.mjs`
+  pins `2.0.0`, so bumping means changing both. Deliberately left: releasing is
+  the maintainer's decision, not a side effect of this work.
