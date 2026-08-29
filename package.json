@@ -37,6 +37,9 @@
     "lazy",
     "dist/*.js",
     "benchmark",
+    "!benchmark/compare",
+    "!benchmark/jsfb-verify.mjs",
+    "!benchmark/js-framework-benchmark/dist",
     "docs",
     "LICENSE",
     "README.md",
@@ -53,7 +56,7 @@
     "build": "webpack --config webpack.config.cjs",
     "benchmark": "node benchmark/run.mjs",
     "size": "node test/size.test.mjs",
-    "lint": "node --check src/index.js && node --check benchmark/run.mjs && node --check test/index.test.mjs && node --check test/docs.test.mjs && node --check test/security.test.mjs && node --check test/browser.test.mjs && node --check test/size.test.mjs && node --check test/package.test.mjs",
+    "lint": "node --check src/index.js && node --check benchmark/run.mjs && node --check test/index.test.mjs && node --check test/docs.test.mjs && node --check test/security.test.mjs && node --check test/browser.test.mjs && node --check test/size.test.mjs && node --check test/package.test.mjs && node --check benchmark/jsfb-verify.mjs && node --check benchmark/js-framework-benchmark/src/main.js && node --check benchmark/compare/run.mjs",
     "check": "npm run lint && npm test && npm run test:types && npm run build && npm run size && npm run test:package"
   },
   "repository": {

@@ -4,3 +4,6 @@
 .env
 .env.*
 !.env.example
+/benchmark/compare/node_modules/
+/benchmark/compare/dist/
+/benchmark/js-framework-benchmark/dist/
