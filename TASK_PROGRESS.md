@@ -39,7 +39,7 @@ ships in the core bundle regardless, so both features were added as
    local head-to-head comparison against all four frameworks runs in this
    repository. Submitting the entry upstream remains, and is a pull request to
    someone else's repository rather than code here.
-7. Build the RealWorld reference app to surface ergonomic friction.
+7. Build the RealWorld reference app to surface ergonomic friction -- DONE.
 8. Fill `docs-site/`. **Withdrawn - the premise was wrong.** No `docs-site/`
    directory exists; `docs/` holds `index`, `api`, `examples`, `recipes`,
    `large-projects`, and `releasing`, about 54 KB in total, and
@@ -53,8 +53,10 @@ rather than causing it).
 
 Tiers 1 and 2 complete and verified. Tier 3 item 5 complete. Item 6's
 measurement work is complete and produced a real performance fix; only the
-upstream pull request remains. Item 7 (RealWorld app) remains. Item 8 was
-withdrawn as based on a false premise.
+upstream pull request remains, and it is a pull request to someone else's
+repository. Item 7 is complete and found two defects. Item 8 was withdrawn as
+based on a false premise. Every planned item is now either done or, for item 6's
+last step, outside this repository.
 
 ## Phase 1 summary (completed earlier)
 
@@ -499,6 +501,71 @@ record, and its dispose callbacks. Solid and Preact create no wrapper object per
 element and so have nothing to release. Closing the rest of that gap means
 changing what a `DomElement` costs, not tuning the disposal path, and that is a
 larger decision than this work should make on its own.
+
+## Tier 3 item 7 - the RealWorld app
+
+`example/realworld` is a complete Conduit client: both feeds, tag filtering,
+pagination, articles with comments, favouriting, following, profiles, the
+editor, and settings. 1,438 lines across 10 modules, no build step - the page
+loads ES modules and imports `src/index.js` directly, so what runs is the
+library source. `example/realworld/verify.mjs` runs 25 checks in headless
+Chromium against the live API.
+
+It targets `https://api.realworld.show/api`; `api.realworld.io` was returning
+HTTP 530. Only unauthenticated flows are verified automatically: signing up and
+publishing write to a shared public service, so those paths are implemented and
+left for a person to run.
+
+### It found two defects, not just friction
+
+**Every route change leaked.** A router view that returns a plain element had no
+scope, so its signals, computed values, and effects were owned by the runtime
+root scope, which nothing releases. Sign-in to sign-up and back added four
+permanent entries per round trip: `82 -> 86 -> 90 -> 94 -> 98 -> 102`, against a
+flat `84` after the fix. `router()` now runs each view in its own scope.
+
+The unit tests could not have caught this as written, and the reason is worth
+recording: route changes are scheduled, so forty synchronous navigations coalesce
+into one render and create one view. My first regression test passed against the
+unfixed library for exactly that reason. It now flushes between navigations, and
+fails when the fix is reverted.
+
+**Async state announced its own disposal.** `asyncState`'s cleanup called
+`cancel()`, which writes a final snapshot; that notifies subscribers, and during
+scope disposal those subscribers render into elements the same disposal has
+already removed, which throws. Every navigation away from a page with a request
+in flight produced an `AggregateError`. Disposal now aborts without writing.
+
+Note the order: this was only reachable once views had scopes. The first fix
+exposed the second.
+
+Both fixes are covered by tests **verified against the bug** - reverting either
+fix fails its test. Cost: 24 gzipped bytes.
+
+### Friction it did not fix
+
+Recorded in full in `example/realworld/README.md`, with counts over the app:
+
+1. `tree()` cannot name a node, so 25 `child.find()` calls address nodes by CSS
+   selector. This caused a real bug - a selector matched the wrong column - whose
+   fix was to invent a class that exists only for wiring. A `ref` key would remove
+   the category.
+2. `tree()` cannot express a reactive list, so every view splits into a
+   declarative shell and an imperative fill.
+3. `text:` accepts a signal but `class:` and `attributes:` do not, so all 13
+   reactive class and attribute bindings sit outside the declarative block.
+4. `classToggle()` takes one class, so an either/or pair costs two computed
+   values and a duplicated negation. Ten of them here.
+5. `child.append()` returns the parent, so depth outside `tree()` needs a
+   temporary per level.
+6. `asyncState.run()` both rejects and records, so four `.catch(() => {})` calls
+   exist only for silence.
+7. A bare `signal.subscribe()` is owned by nothing, unlike element bindings. I
+   leaked one inside a re-render and had to restructure the view. **After the
+   tier 1 item 2 ownership work, this is the one place where disposal is still a
+   discipline rather than a default**, and it is the finding most worth acting on.
+8. There is no way to ask whether the current scope is alive, so five async
+   continuations guard on `root.html` instead.
 
 ## Size budget decision
 

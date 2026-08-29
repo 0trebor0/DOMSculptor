@@ -7,6 +7,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `example/realworld`, a complete RealWorld reference client - feeds, tags,
+  pagination, articles, comments, favouriting, following, profiles, the editor,
+  and settings - with no build step, plus a 25-check headless verification of its
+  unauthenticated flows. Its README records what building it found.
 - Explicit `createProgressively(tag, parent, callback?)` mounting. The first
   element mounts immediately, later elements mount one per animation frame, and
   the `rendering` property reports whether queued work remains. Parented
@@ -68,13 +72,23 @@ uses [Semantic Versioning](https://semver.org/).
   previously saw it still attached.
 - The gzip budget enforced by `npm run size` moved from 10 KB to 13 KB to make
   room for automatic dependency tracking, runtime ownership, routing, and
-  virtualization. The build currently measures 12572 bytes.
+  virtualization. The build currently measures 12596 bytes.
 - `computed(fn)` and `effect(fn)` called without a dependency list previously
   never re-ran; they now track their reads. Calls that pass a dependency list
   are unaffected. Pass an empty list to keep the evaluate-once behavior.
 
 ### Fixed
 
+- `router()` now runs each view inside a scope of its own and disposes it on the
+  way out. A view returning a plain element previously had no scope, so the
+  signals, computed values, and effects it created stayed owned by the runtime
+  root scope, where nothing released them: every route change leaked. Views
+  returning a component instance were unaffected, since a component already
+  creates its own scope.
+- Disposing `asyncState` no longer writes a final snapshot. Its cleanup called
+  `cancel()`, which notifies subscribers, and on scope disposal those subscribers
+  render into elements the same disposal has already removed - which throws. The
+  work is still aborted; the announcement is gone.
 - The standalone `computed()` and `effect()` exports now track their reads like
   the methods of the same name. They kept the old empty-list default when
   automatic tracking was added, so `import { computed } from 'domsculptor'`
