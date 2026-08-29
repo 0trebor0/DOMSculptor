@@ -106,3 +106,17 @@ main.examples-page + footer { margin-left: 0; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+
+/* In-depth reference: per-member parameter tables, outcomes, and overloads. */
+.reference h3 { font-size: 15px; margin-bottom: 8px; }
+.reference .type-name { border-top: 0; color: var(--green); font-size: 13px; letter-spacing: 0.06em; margin-top: 26px; text-transform: uppercase; }
+.reference pre { margin-top: 14px; }
+.reference .note { margin-top: 14px; }
+.params { border-collapse: collapse; margin-top: 12px; width: 100%; }
+.params th, .params td { border-bottom: 1px solid var(--line); padding: 7px 10px 7px 0; text-align: left; vertical-align: top; }
+.params th { white-space: nowrap; width: 1%; }
+.params td { color: var(--muted); }
+.returns, .throws { margin-top: 10px; }
+.throws { color: #a93620; }
+.reference article.overload { border-top: 0; padding-top: 6px; }
+.reference article.overload .note { background: transparent; border-left: 2px solid var(--line); margin-top: 6px; padding: 4px 12px; }

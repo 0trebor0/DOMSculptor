@@ -33,9 +33,16 @@ for (let method of convenienceMethods) {
 
 let manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 assert.equal(manifest.version, '3.0.0');
-assert.ok(manifest.files.includes('benchmark'));
-assert.ok(manifest.files.includes('docs'));
-assert.ok(manifest.files.includes('dist/*.js'));
+// The published package carries only what is needed to install and use the
+// library. Documentation, benchmarks, the example, and the changelog live in the
+// repository; shipping them made the tarball a third larger than the code.
+for (let needed of ['src', 'types', 'testing', 'lazy', 'dist/*.js']) {
+    assert.ok(manifest.files.includes(needed), `${needed} must be published`);
+}
+for (let excluded of ['benchmark', 'docs', 'example', 'test', 'CHANGELOG.md']) {
+    assert.ok(!manifest.files.includes(excluded), `${excluded} must not be published`);
+}
+// dist/*.js rather than dist keeps the source maps out.
 assert.ok(!manifest.files.includes('dist'));
 let gitIgnore = await readFile(new URL('../.gitignore', import.meta.url), 'utf8');
 assert.match(gitIgnore, /^\/dist\/\*\.map$/m);

@@ -7,6 +7,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `docs/reference.html`, an in-depth reference covering all 207 declared members
+  with signature, description, parameters, return value, failure modes, and a
+  worked example where one helps. Signatures are extracted from
+  `types/index.d.ts` at build time by `npm run docs:reference` (generator in
+  `tools/reference/`, which is not published), so they cannot
+  drift from the shipped declarations, and `npm test` fails if the page is stale.
 - `npm run test:fuzz`, property-based fuzzing of the keyed reconciler against a
   model. Random operation sequences are checked after every step for order,
   node identity across reorders, and that DOM moves never exceed the theoretical
@@ -90,6 +96,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The published package now carries only what is needed to install and use the
+  library: `src`, `dist/*.js`, the declaration files, `package.json`, `README.md`,
+  and `LICENSE`. Documentation, benchmarks, and the changelog are no longer
+  published; they remain in the repository. The tarball went from 26 files and
+  490 kB unpacked to 10 files and 303 kB. `.npmignore` was brought in step with
+  the same list, so either mechanism publishes the same package.
 - **This release is breaking and needs a major version.** `child.append()`'s
   return value, `asyncState.run()`'s contract, dependency-less `computed()` and
   `effect()`, and the timing of dispose hooks all changed. The migration guide in

@@ -126,3 +126,39 @@ test('static documentation covers required guides and practical examples without
     ]) assert.match(releasing, new RegExp(releaseGate));
     assert.doesNotMatch(html + examples + api + recipes + css, /\b(?:next\.js|react|vinext|tailwind)\b/i);
 });
+
+
+test('the in-depth reference covers every declared member and is not stale', async () => {
+    let ts = (await import('typescript')).default;
+    let [declarations, reference] = await Promise.all([
+        readFile(new URL('../types/index.d.ts', import.meta.url), 'utf8'),
+        readFile(new URL('../docs/reference.html', import.meta.url), 'utf8')
+    ]);
+
+    let source = ts.createSourceFile('index.d.ts', declarations, ts.ScriptTarget.Latest, true);
+    let expected = [];
+    for (let statement of source.statements) {
+        if (!ts.isInterfaceDeclaration(statement) && !ts.isClassDeclaration(statement)) continue;
+        let typeName = statement.name.getText(source);
+        for (let member of statement.members) {
+            let name = member.name?.getText(source);
+            if (!name || name.startsWith('_')) continue;
+            expected.push(`${typeName}.${name}`);
+        }
+    }
+    assert.ok(expected.length > 150, `only found ${expected.length} declared members`);
+
+    // The page is generated from the declarations, so a member missing from it means
+    // the declarations changed and `npm run docs:reference` was not run afterwards.
+    let missing = [...new Set(expected)].filter(entry => {
+        let anchor = entry.replace(/\W+/g, '-').toLowerCase();
+        return !reference.includes(`id="${anchor}"`);
+    });
+    assert.deepEqual(missing, [], `docs/reference.html is stale; run npm run docs:reference`);
+
+    // Every section named in the page's own navigation must exist as a section.
+    for (let id of ['runtime', 'elements', 'state', 'stores', 'async', 'structure', 'virtual', 'routing', 'components']) {
+        assert.match(reference, new RegExp(`<section id="${id}"`), `missing section ${id}`);
+    }
+    assert.match(reference, /Signatures on this page are extracted from/);
+});

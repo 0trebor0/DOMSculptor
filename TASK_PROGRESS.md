@@ -993,6 +993,89 @@ Each run picks a fresh seed and prints it, so runs explore new sequences while a
 failure stays reproducible with `SEED=<n> npm run test:fuzz`. Defaults are 400
 sequences of 24 steps; `SEQUENCES` and `STEPS` override them.
 
+## In-depth API reference
+
+The docs had breadth but not depth: `docs/api.html` named 154 of 160 public
+members, but as prose paragraphs by area - "Classes and styles: `class.add/...`,
+`classToggle`, `setStyle`" - which tells a reader a method exists, not its
+signature, parameters, return value, failure modes, or how to use it. There was
+also no per-member anchor to link to.
+
+`docs/reference.html` fills that: **all 207 declared members**, each with its
+signature, a description, parameter table where useful, return value, what it
+throws, and a worked example where one helps. 197 entries, 55 examples, 118
+return/throws notes, ten sections, per-member anchors.
+
+**Signatures are extracted from `types/index.d.ts`** with the TypeScript compiler
+when the page is built, so the one thing most likely to rot - the signature - is
+generated rather than transcribed. Prose and examples live in
+`tools/reference/parts/`, keyed by `Type.member`, and are merged in by name. A
+member with no entry still renders, and the build prints the gap, so the omission
+is visible rather than silent.
+
+**Two guards, both verified against injected drift:**
+
+- `npm test` fails when the page is stale. Adding a member to the declarations
+  without rebuilding fails the new docs test *and* the existing declaration-drift
+  guard, which is the pair working as intended.
+- The build reports how many members lack prose, so coverage cannot quietly slip.
+
+The generator lives in `tools/`, not `docs/`, because a first attempt shipped 61 kB
+of build tooling in the npm tarball: negated `files` patterns do not reach into an
+included directory, and moving it out was cleaner than fighting the packer. The
+tarball is 26 files, 121.3 kB, and contains the built page but not its source.
+
+Linked from every documentation page, from `README.md`, and added to the release
+checklist so the page is rebuilt before a version ships.
+
+## Trimming the published package
+
+The tarball shipped 26 files and 490 kB unpacked, roughly a third of which - the
+documentation, the benchmark harness, and the changelog - is nothing an installer
+needs to use the library. All of it stays in the repository; only what npm
+publishes changed.
+
+| | before | after |
+| --- | ---: | ---: |
+| files | 26 | 10 |
+| packed | 121.4 kB | 73.6 kB |
+| unpacked | 490.0 kB | 303.3 kB |
+
+What ships now is exactly the runtime (`src/index.js`), both browser builds
+(`dist/*.js`, the glob rather than the directory so source maps stay out), the
+four declaration files, `package.json`, `README.md`, and `LICENSE`.
+
+**`.npmignore` was updated to match.** npm consults `files` or `.npmignore`, never
+both, and `files` wins - proven rather than assumed, by putting `src/index.js`
+into `.npmignore` and watching it ship anyway. The old list predated `docs/`,
+`example/`, `benchmark/`, and `tools/`, so it named none of them; had `files` ever
+been removed, every one of them would have been published.
+
+Both lists now describe the same package, and that equivalence was verified rather
+than eyeballed: removing `files` entirely and repacking produces the identical
+tarball, 10 files and 73.6 kB. `files` remains the enforcing mechanism, because an
+allow-list publishes nothing new by default while a deny-list publishes everything
+new by default.
+
+`test/package.test.mjs` previously asserted that `benchmark` and `docs` were
+published; it now asserts the opposite, and that every path the `exports` map
+names is present. That test is the guard against someone re-adding them without
+meaning to.
+
+**Verified by installing it, not by reading the file list.** The tarball was
+packed, installed into an empty project, and every entry point imported: the
+default export, all 20 named exports, `domsculptor/browser`,
+`domsculptor/testing`, `domsculptor/lazy`, and `domsculptor/package.json`. A
+TypeScript consumer was then compiled against it under `strict` with
+`moduleResolution: nodenext` and `skipLibCheck` off, which passes.
+
+One observation from that check, not a defect: `createLazyComponent`'s declared
+loader type is stricter than the runtime. The runtime wraps whatever the module
+resolves to, so a loader returning `{ default: () => someElement }` works; the
+declaration requires a component factory or instance. Types being stricter than
+the runtime is the safe direction, and the documented pattern - a module whose
+default export is a component - satisfies both, so it was left alone.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:
@@ -1087,7 +1170,7 @@ build outputs).
 
 **Inspected but unchanged:** `test/package.test.mjs`, `test/docs.test.mjs`,
 `test/security.test.mjs`, `test/size.test.mjs`, `benchmark/run.mjs`,
-`webpack.config.cjs`, `testing/index.d.ts`, `lazy/index.d.ts`, `.npmignore`,
+`webpack.config.cjs`, `testing/index.d.ts`, `lazy/index.d.ts`,
 `AGENTS.md`.
 
 ## Risks / limitations

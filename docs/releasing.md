@@ -5,6 +5,8 @@ Use this checklist from a clean working tree on the intended release commit.
 ## Before the release
 
 - Confirm `package.json` and `CHANGELOG.md` use the intended semantic version.
+- Run `npm run docs:reference` so the in-depth reference matches the shipped
+  declarations. `npm test` fails if it is stale.
 - Install exactly from the lockfile with `npm ci`.
 - Install the declared Playwright browser versions.
 - Run `npm run check`.
@@ -17,7 +19,15 @@ Use this checklist from a clean working tree on the intended release commit.
   prints, so a later failure can be compared against a known-good run.
 - Run `npm run benchmark` and record the runtime, browser, medians, variance,
   memory result, and compressed bundle sizes.
-- Run `npm pack --dry-run --json` and inspect every published path.
+- Run `npm pack --dry-run --json` and inspect every published path. The package
+  carries only what is needed to install and use the library: `src`, `dist/*.js`,
+  the declaration files, `package.json`, `README.md`, and `LICENSE`. Documentation,
+  benchmarks, the example, the tests, and the changelog stay in the repository.
+  That list is controlled by `files` in `package.json`, with `.npmignore` kept in
+  step as a second description of it. Note that npm consults one or the other and
+  `files` wins, so a change to either belongs in both.
+- Install the packed tarball into an empty project and import every entry point,
+  including a TypeScript consumer under `strict` and `nodenext`.
 - Confirm both production bundles remain within the 13 KB gzip budget that
   `npm run size` enforces.
 - Confirm `src` contains only `index.js`.

@@ -129,9 +129,10 @@ Save this as an HTML file and open it in a browser:
 - [Declarative trees](#tree-creation), [conditional UI](#conditional-rendering), and [routing](#routing)
 - [Components, contexts, and disposal scopes](#components-and-disposal-scopes)
 
-Continue with the [practical recipes](docs/recipes.html), use the
-[complete API reference](docs/api.html) while coding, or open the
-[full examples](docs/examples.html). For application structure, routing,
+Continue with the [practical recipes](docs/recipes.html), keep the
+[in-depth reference](docs/reference.html) open while coding — every member with
+its signature, parameters, return value, failures, and a worked example — or read
+the [API summary](docs/api.html) and the [full examples](docs/examples.html). For application structure, routing,
 testing, lazy loading, and service boundaries, read the
 [large-project guide](docs/large-projects.html).
 

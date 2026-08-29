@@ -1,9 +1,35 @@
+# What must never reach npm. The published package carries only what is needed to
+# install and use the library: src, dist/*.js, the declaration files,
+# package.json, README.md, and LICENSE.
+#
+# Note: npm consults `files` in package.json *or* this file, never both, and
+# `files` wins. This list is kept complete and in step with `files` so the two
+# agree, and so that removing `files` would still publish the same package.
+
+# Documentation and its generator
+docs/
+tools/
 CNAME
 index.html
+
+# Development, testing, and measurement
+test/
+example/
+benchmark/
+AGENTS.md
+TASK_PROGRESS.md
+CHANGELOG.md
+
+# Build inputs and local tooling
 webpack.config.cjs
+tsconfig.json
 package-lock.json
 node_modules
+dist/*.map
 .claude/
-AGENTS.md
+.github/
 Push.bat
-test/
+
+# Local environment
+.env
+.env.*

@@ -1,0 +1,1377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="In-depth DOMSculptor reference: every public member with its signature, parameters, return value, failures, and a worked example.">
+  <title>In-depth reference · DOMSculptor</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./index.html"><span aria-hidden="true">DS</span> DOMSculptor</a>
+    <nav aria-label="Primary navigation"><a href="./index.html">Start</a><a href="./api.html">API summary</a><a href="./recipes.html">Recipes</a><a href="./examples.html">Examples</a></nav>
+  </header>
+  <aside aria-label="Reference navigation">
+    <strong>In-depth reference</strong>
+    <a href="#runtime">DomSculptor</a>
+    <a href="#elements">DomElement</a>
+    <a href="#state">Signals, computed values, and bindings</a>
+    <a href="#stores">Stores</a>
+    <a href="#async">Async state</a>
+    <a href="#structure">Trees</a>
+    <a href="#virtual">Virtual lists</a>
+    <a href="#routing">Router</a>
+    <a href="#components">Components, scopes, and contexts</a>
+  </aside>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">In-depth reference</p>
+      <h1>Every member, with what it takes and what it does.</h1>
+      <p class="lede">Every public member, with what it takes, what it gives back, how it fails, and a
+worked example. Read the <a href="./index.html">concept tour</a> first if you are
+new; use this page while you are writing code.</p>
+      <p class="note">Signatures on this page are extracted from <code>types/index.d.ts</code> when the page is built, so they cannot drift from the declarations the package ships. Rebuild with <code>npm run docs:reference</code>.</p>
+    </section>
+    <section id="runtime">
+      <p class="eyebrow">Runtime and ownership</p>
+      <h2>DomSculptor</h2>
+      <p class="lede">A runtime owns a scheduler, a scope stack, and an element registry. Create one per
+            application, or several when interfaces need isolated flushing and diagnostics.
+            Everything created through a runtime has an owner, so nothing needs manual cleanup
+            that the runtime cannot do for you.</p>
+      <div class="reference">
+        <h3 class="type-name">DomSculptor</h3>
+        <article id="domsculptor-createdetached">
+        <h3><code>createDetached&lt;K extends string&gt;(tag: K, callback?: ((element: DomElement&lt;ElementForTag&lt;K&gt;&gt;) =&gt; void) | null): DomElement&lt;ElementForTag&lt;K&gt;&gt;</code></h3>
+        <p>Creates an element that is <strong>not</strong> in the document. Nothing appears until you
+            mount it, which lets you build and configure a subtree in one pass and pay a single
+            insertion.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>tagName</code></th><td>Any tag name. TypeScript infers the native element type from it.</td></tr>
+        <tr><th scope="row"><code>callback</code></th><td>Optional. Receives the element before it is returned.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> The new <code>DomElement</code>.</p>
+        <pre><code>let card = sculptor.createDetached('article', el =&gt; el.class.add('card'));
+card.child.create('h2').setText('Offline first');
+sculptor.mount(card, '#app');       // one insertion, fully built</code></pre>
+        </article>
+        <article id="domsculptor-create">
+        <h3><code>create&lt;K extends string&gt;(tag: K, callback?: ((element: DomElement&lt;ElementForTag&lt;K&gt;&gt;) =&gt; void) | null): DomElement&lt;ElementForTag&lt;K&gt;&gt;</code></h3>
+        <p>Creates an element and mounts it immediately when a parent is given. Without a parent it
+            behaves exactly like <code>createDetached</code>.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>tagName</code></th><td>The tag to create.</td></tr>
+        <tr><th scope="row"><code>parent</code></th><td>Optional selector, native <code>Node</code>, or <code>DomElement</code>.</td></tr>
+        <tr><th scope="row"><code>callback</code></th><td>Optional configuration callback.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> The new <code>DomElement</code>.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> if a selector matches nothing, or if the parent is disposed.</p>
+        <pre><code>let button = sculptor.create('button', '#toolbar', el =&gt; el.setText('Save'));</code></pre>
+        </article>
+        <article id="domsculptor-createin">
+        <h3><code>createIn&lt;K extends string&gt;(parent: string | Node | DomElement, tag: K, callback?: ((element: DomElement&lt;ElementForTag&lt;K&gt;&gt;) =&gt; void) | null): DomElement&lt;ElementForTag&lt;K&gt;&gt;</code></h3>
+        <p>Creates an element inside a parent you already hold. The argument order mirrors the nesting.</p>
+        <p class="returns"><strong>Returns.</strong> The new child <code>DomElement</code>.</p>
+        <pre><code>let list = sculptor.create('ul', '#app');
+let row = sculptor.createIn(list, 'li');</code></pre>
+        </article>
+        <article id="domsculptor-createprogressively">
+        <h3><code>createProgressively&lt;K extends string&gt;(tag: K, parent: string | Node | DomElement, callback?: ((element: DomElement&lt;ElementForTag&lt;K&gt;&gt;) =&gt; void) | null): DomElement&lt;ElementForTag&lt;K&gt;&gt;</code></h3>
+        <p>Mounts the first element immediately and one more per animation frame after that, so a
+            large render does not block interaction. The element is returned configured straight away;
+            only its insertion is deferred.</p>
+        <p class="returns"><strong>Returns.</strong> The new <code>DomElement</code>, already configured.</p>
+        <pre><code>for (let row of thousands) {
+    sculptor.createProgressively('div', container, el =&gt; el.setText(row.label));
+}
+// sculptor.rendering === true until the queue drains</code></pre>
+        <p class="note"><code>rendering</code> reports whether queued work remains. Disposing the parent cancels
+            whatever is still queued.</p>
+        </article>
+        <article id="domsculptor-mount">
+        <h3><code>mount&lt;T extends DomElement | ComponentInstance&gt;(element: T, parent: string | Node | DomElement): T</code></h3>
+        <p>Attaches an element or component instance to a parent. Mounting an element that is
+            already mounted moves it rather than duplicating it.</p>
+        <p class="returns"><strong>Returns.</strong> The mounted element or instance.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> when the parent cannot be resolved or has been disposed.</p>
+        <pre><code>sculptor.mount(view, '#app');
+sculptor.mount(view, otherParent);   // moves it; no duplicate</code></pre>
+        </article>
+        <article id="domsculptor-trymount">
+        <h3><code>tryMount&lt;T extends DomElement | ComponentInstance&gt;(element: T, parent: string | Node | DomElement): T | null</code></h3>
+        <p>The non-throwing form of <code>mount</code>, for parents that may not exist yet.</p>
+        <p class="returns"><strong>Returns.</strong> The mounted value, or <code>null</code> when the parent could not be resolved.</p>
+        <pre><code>if (!sculptor.tryMount(banner, '#optional-slot')) {
+    // the slot is not on this page
+}</code></pre>
+        </article>
+        <article id="domsculptor-unmount">
+        <h3><code>unmount&lt;T extends DomElement | ComponentInstance&gt;(element: T): T</code></h3>
+        <p>Detaches without disposing. The element keeps its listeners, bindings, and children and
+            can be mounted again. Unmount hooks run child-first; mount hooks do <em>not</em> run again
+            on a later mount.</p>
+        <pre><code>sculptor.unmount(panel);      // reversible
+sculptor.mount(panel, '#app');</code></pre>
+        </article>
+        <article id="domsculptor-wrap">
+        <h3><code>wrap(selectorOrNode: string | Node): DomElement</code></h3>
+        <p>Takes over an existing node so the library can manage it. One wrapper exists per node, so
+            wrapping the same node twice returns the same object.</p>
+        <p class="returns"><strong>Returns.</strong> The <code>DomElement</code> for that node.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> when a selector matches nothing.</p>
+        <pre><code>let form = sculptor.wrap('#signup');
+form.on('submit', event =&gt; event.preventDefault());</code></pre>
+        <p class="note">A wrapped node is not deleted by <code>sculptor.dispose()</code> — the runtime did not create
+            it, so it only releases the listeners and bindings it added.</p>
+        </article>
+        <article id="domsculptor-trywrap">
+        <h3><code>tryWrap(selectorOrNode: string | Node): DomElement | null</code></h3>
+        <p>The non-throwing form of <code>wrap</code>.</p>
+        <p class="returns"><strong>Returns.</strong> The <code>DomElement</code>, or <code>null</code> when nothing matched.</p>
+        </article>
+        <article id="domsculptor-adopt">
+        <h3><code>adopt&lt;T extends Node&gt;(node: T): DomElement&lt;T&gt;</code></h3>
+        <p>Takes ownership of a node you already have a reference to, without a selector lookup.</p>
+        <p class="returns"><strong>Returns.</strong> The <code>DomElement</code> for that node.</p>
+        </article>
+        <article id="domsculptor-tree">
+        <h3><code>tree&lt;K extends string&gt;(config: TreeConfig&lt;K&gt;): DomElement&lt;ElementForTag&lt;K&gt;&gt;</code></h3>
+        <p>Builds a detached hierarchy from a plain configuration object. Text is written as text
+            nodes, never parsed, and <code>attributes</code>, <code>class</code>, and
+            <code>children</code> all accept reactive values.</p>
+        <p class="returns"><strong>Returns.</strong> The root <code>DomElement</code>.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> for a missing <code>tag</code> or an invalid <code>class</code>, <code>attributes</code>, <code>on</code>, or <code>ref</code>.</p>
+        <pre><code>let refs = {};
+let panel = sculptor.tree({
+    tag: 'section',
+    refs,
+    class: { panel: true, 'is-busy': busy },
+    children: [
+        { tag: 'h2', ref: 'title', text: heading },
+        { tag: 'button', text: 'Save', attributes: { disabled: busy },
+          on: { click: save } }
+    ]
+});
+refs.title.class.add('lead');</code></pre>
+        </article>
+        <article id="domsculptor-when">
+        <h3><code>when(condition: Readable&lt;unknown&gt;, branch: DomChild | (() =&gt; DomChild), options?: { fallback?: DomChild | (() =&gt; DomChild); preserve?: boolean; disposeOnStop?: boolean; parent?: string | Node | DomElement; }): Unsubscribe</code></h3>
+        <p>Mounts one of two branches according to a condition, in a single queued pass. Factory
+            branches are disposed when they leave unless <code>preserve</code> is set.</p>
+        <p class="returns"><strong>Returns.</strong> A stop function that releases the region.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> without a readable condition, or when no parent can be determined.</p>
+        <pre><code>let stop = sculptor.when(loggedIn,
+    () =&gt; sculptor.tree({ tag: 'p', text: 'Welcome back' }),
+    { parent: '#app', fallback: () =&gt; sculptor.tree({ tag: 'a', text: 'Sign in' }) }
+);
+stop();   // releases the region and its ownership entry</code></pre>
+        </article>
+        <article id="domsculptor-signal">
+        <h3><code>signal&lt;T&gt;(initial: T): State&lt;T&gt;</code></h3>
+        <p>Creates a signal: a value plus change notification. Reads are synchronous; DOM bindings
+            are queued into one pass per frame.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>State</code>.</p>
+        <pre><code>let count = sculptor.signal(0);
+count.get();          // 0
+count.set(1);
+count.update(n =&gt; n + 1);</code></pre>
+        </article>
+        <article id="domsculptor-state">
+        <h3><code>state&lt;T&gt;(initial: T): State&lt;T&gt;</code></h3>
+        <p>An alias for <code>signal</code>, kept for readability where the value is a record rather than a scalar.</p>
+        </article>
+        <article id="domsculptor-computed">
+        <h3><code>computed&lt;T&gt;(compute: () =&gt; T, dependencies?: readonly Readable&lt;unknown&gt;[]): Computed&lt;T&gt;</code></h3>
+        <p>A value derived from other signals. With no dependency list it discovers what it reads
+            on every run, so a branch that stops reading a signal stops depending on it.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>compute</code></th><td>Function producing the value.</td></tr>
+        <tr><th scope="row"><code>dependencies</code></th><td>Omit to track automatically. An array pins dependencies. <code>[]</code> evaluates once.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> A <code>Computed</code>.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> for an invalid dependency list; <code>Error</code> on a read cycle.</p>
+        <pre><code>let total = sculptor.computed(() =&gt; items.get().length);
+let pinned = sculptor.computed(() =&gt; expensive(), []);   // evaluated once</code></pre>
+        <p class="note">Tracking is synchronous: a signal read after an <code>await</code> is not discovered.</p>
+        </article>
+        <article id="domsculptor-effect">
+        <h3><code>effect(run: () =&gt; void | (() =&gt; void), dependencies?: readonly Readable&lt;unknown&gt;[]): Unsubscribe</code></h3>
+        <p>Runs immediately, then again whenever a signal it read changes. Returning a function
+            registers cleanup, which runs before each rerun and once when the effect stops.</p>
+        <p class="returns"><strong>Returns.</strong> A stop function.</p>
+        <pre><code>let stop = sculptor.effect(() =&gt; {
+    document.title = title.get();
+    return () =&gt; console.log('cleaning up');
+});</code></pre>
+        <p class="note">An arrow with an implicit return hands its value back as a cleanup, so write
+            <code>() =&gt; { read(); }</code> rather than <code>() =&gt; read()</code>.</p>
+        </article>
+        <article id="domsculptor-batch">
+        <h3><code>batch&lt;T&gt;(callback: () =&gt; T): T</code></h3>
+        <p>Groups writes so the DOM updates once at the end. Nested batches defer until the outermost completes.</p>
+        <pre><code>sculptor.batch(() =&gt; {
+    first.set('Grace');
+    last.set('Hopper');
+});   // one rendering pass</code></pre>
+        </article>
+        <article id="domsculptor-flush">
+        <h3><code>flush(): void</code></h3>
+        <p>Applies queued DOM work immediately instead of waiting for the scheduled pass. Useful in tests and when measuring layout.</p>
+        <pre><code>value.set('next');
+sculptor.flush();
+element.html.textContent;   // already 'next'</code></pre>
+        </article>
+        <article id="domsculptor-store">
+        <h3><code>store&lt;T extends Record&lt;string, unknown&gt;&gt;(initial: T): DataStore&lt;T&gt;</code></h3>
+        <p>Creates a keyed store. An alias for <code>data</code>.</p>
+        </article>
+        <article id="domsculptor-data">
+        <h3><code>data&lt;T extends Record&lt;string, unknown&gt;&gt;(initial: T): DataStore&lt;T&gt;</code></h3>
+        <p>Creates an object whose keys are independently observable, with a signal available per key.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>DataStore</code>.</p>
+        <pre><code>let profile = sculptor.data({ name: 'Ada', theme: 'dark' });
+profile.set('theme', 'light');
+profile.signal('theme').bindText(label);</code></pre>
+        </article>
+        <article id="domsculptor-asyncstate">
+        <h3><code>asyncState&lt;T = unknown&gt;(initialData?: T | null): AsyncState&lt;T&gt;</code></h3>
+        <p>Tracks status, data, and error for asynchronous work, aborting a superseded run by default.</p>
+        <p class="returns"><strong>Returns.</strong> An <code>AsyncState</code>.</p>
+        <pre><code>let users = sculptor.asyncState([]);
+let { status, data, error } = await users.run(({ signal }) =&gt;
+    fetch('/api/users', { signal }).then(r =&gt; r.json())
+);</code></pre>
+        </article>
+        <article id="domsculptor-component">
+        <h3><code>component&lt;P extends object = Record&lt;string, never&gt;, A extends object = Record&lt;string, never&gt;&gt;( factory: (props: P, context: Context) =&gt; ComponentResult&lt;A&gt;, options?: { name?: string } ): ComponentFactory&lt;P, A&gt;</code></h3>
+        <p>Wraps a factory so each invocation gets its own disposal scope. Everything created inside
+            is released when the instance is disposed.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>factory</code></th><td>Receives <code>(props, context)</code> and returns a root or a <code>{ root, api?, dispose? }</code> definition.</td></tr>
+        <tr><th scope="row"><code>options</code></th><td><code>name</code> improves diagnostics.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> A factory function producing a <code>ComponentInstance</code>.</p>
+        <pre><code>let Counter = sculptor.component(({ start = 0 }) =&gt; {
+    let count = sculptor.signal(start);
+    let root = sculptor.tree({ tag: 'button', text: sculptor.computed(() =&gt; String(count.get())) });
+    root.on('click', () =&gt; count.update(n =&gt; n + 1));
+    return { root, api: { reset: () =&gt; count.set(start) } };
+}, { name: 'Counter' });
+
+let counter = Counter({ start: 5 });
+sculptor.mount(counter, '#app');
+counter.api.reset();
+counter.dispose();</code></pre>
+        </article>
+        <article id="domsculptor-errorboundary">
+        <h3><code>errorBoundary&lt;P extends object, A extends object&gt;( componentFactory: ComponentFactory&lt;P, A&gt;, fallback: (error: unknown, props: P, context: Context) =&gt; ComponentResult&lt;A&gt; | ComponentInstance&lt;A&gt; ): ComponentFactory&lt;P, A&gt;</code></h3>
+        <p>Wraps a component factory so a failure during creation renders a fallback instead of
+            propagating. The failed scope is disposed before the fallback is built.</p>
+        <p class="returns"><strong>Returns.</strong> A factory producing either the component or the fallback.</p>
+        <pre><code>let Safe = sculptor.errorBoundary(Risky, error =&gt;
+    sculptor.tree({ tag: 'p', text: 'Could not load this panel' })
+);</code></pre>
+        </article>
+        <article id="domsculptor-createscope">
+        <h3><code>createScope(): DisposalScope</code></h3>
+        <p>Creates an ownership scope. Anything created inside <code>scope.run()</code> belongs to it
+            and is released together, in reverse order of creation.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>DisposalScope</code>.</p>
+        <pre><code>let scope = sculptor.createScope();
+scope.run(() =&gt; {
+    let value = sculptor.signal(0);
+    value.subscribe(render);     // released with the scope
+});
+scope.dispose();</code></pre>
+        </article>
+        <article id="domsculptor-createcontext">
+        <h3><code>createContext(parent?: Context | null, initial?: Map&lt;symbol, unknown&gt; | Record&lt;PropertyKey, unknown&gt; | null): Context</code></h3>
+        <p>Creates a context, optionally inheriting from a parent and seeded with an object or <code>Map</code>.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>Context</code>.</p>
+        </article>
+        <article id="domsculptor-createcontextkey">
+        <h3><code>createContextKey&lt;T = unknown&gt;(description?: string): ContextKey&lt;T&gt;</code></h3>
+        <p>Creates a unique symbol key, so two features can use the same name without colliding.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>symbol</code>.</p>
+        </article>
+        <article id="domsculptor-router">
+        <h3><code>router(routes: Record&lt;string, RouteView&gt;, options?: RouterOptions): Router</code></h3>
+        <p>Maps path patterns to views and keeps one mounted. Patterns support <code>:name</code>
+            segments and a <code>*</code> catch-all; literal segments are escaped, so <code>/a.b</code>
+            matches only <code>/a.b</code>. Each view runs in its own scope, disposed on the way out.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>routes</code></th><td>An object of pattern to view function.</td></tr>
+        <tr><th scope="row"><code>options</code></th><td><code>parent</code> selects the outlet; <code>hash: true</code> routes on the fragment.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> A <code>Router</code>.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> when routes are missing or a view is not a function.</p>
+        <pre><code>let router = sculptor.router({
+    '/': () =&gt; Home(),
+    '/posts/:slug': ({ params, scope }) =&gt; Post({ slug: params.slug, scope }),
+    '*': () =&gt; sculptor.tree({ tag: 'p', text: 'Not found' })
+}, { parent: '#app', hash: true });
+
+router.navigate('/posts/hello');</code></pre>
+        <p class="note"><code>*</code> is a whole-path wildcard: a route of <code>'*'</code> puts the entire path in
+            <code>params.rest</code> including its leading slash, while <code>'/*'</code> captures only the
+            remainder.</p>
+        </article>
+        <article id="domsculptor-virtuallist">
+        <h3><code>virtualList&lt;T&gt;(items: readonly T[], container: DomElement, options: VirtualListOptions&lt;T&gt;): DomElement</code></h3>
+        <p>Renders a large collection by mounting only the visible range plus overscan. A spacer of
+            the full collection height keeps the scrollbar representing every record.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>items</code></th><td>The collection. Copied, so later mutation of your array does not affect the list.</td></tr>
+        <tr><th scope="row"><code>container</code></th><td>A scrollable <code>DomElement</code>, not already virtualized.</td></tr>
+        <tr><th scope="row"><code>options</code></th><td>See <code>VirtualListOptions</code>.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> The container.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> for a missing <code>rowHeight</code> or <code>render</code>, or duplicate keys; <code>Error</code> if the container is already virtualized.</p>
+        <pre><code>let list = sculptor.create('div', '#app')
+    .setStyle({ height: '600px', overflow: 'auto' });
+
+sculptor.virtualList(records, list, {
+    rowHeight: 48,
+    overscan: 6,
+    key: record =&gt; record.id,
+    render: record =&gt; sculptor.createDetached('div').setText(record.name)
+});
+// 9,000 records, roughly 20-60 rows in the DOM</code></pre>
+        <p class="note">A row holding the focused element is kept mounted outside the visible range and is not
+            updated while it holds focus, so scrolling cannot pull an input out from under someone
+            typing.</p>
+        </article>
+        <article id="domsculptor-updatevirtuallist">
+        <h3><code>updateVirtualList&lt;T&gt;(container: DomElement, items: readonly T[]): DomElement</code></h3>
+        <p>Replaces the collection, resizing the spacer and clamping a scroll position left past the
+            new end. Rows for surviving keys are reused.</p>
+        <p class="returns"><strong>Returns.</strong> The container.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> on duplicate keys, before any DOM change.</p>
+        </article>
+        <article id="domsculptor-scrollvirtuallist">
+        <h3><code>scrollVirtualList(container: DomElement, index: number, options?: VirtualScrollOptions): boolean</code></h3>
+        <p>Scrolls to an index or to <code>{ key }</code>, with <code>start</code>, <code>center</code>, <code>end</code>, or <code>nearest</code> alignment.</p>
+        <p class="returns"><strong>Returns.</strong> <code>true</code> when the target was reachable, <code>false</code> otherwise.</p>
+        <pre><code>sculptor.scrollVirtualList(list, 5000, { align: 'center' });
+sculptor.scrollVirtualList(list, { key: 'user-42', align: 'nearest' });</code></pre>
+        </article>
+        <article id="domsculptor-virtualliststatus">
+        <h3><code>virtualListStatus(container: DomElement): VirtualListStatus | null</code></h3>
+        <p>Reads the current range as a frozen snapshot, for tests and diagnostics.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>VirtualListStatus</code>, or <code>null</code> when the container is not virtualized.</p>
+        </article>
+        <article id="domsculptor-disposevirtuallist">
+        <h3><code>disposeVirtualList(container: DomElement): DomElement</code></h3>
+        <p>Removes virtualization and every mounted row while keeping the container, which can then be virtualized again.</p>
+        <p class="returns"><strong>Returns.</strong> The container.</p>
+        </article>
+        <article id="domsculptor-rendering">
+        <h3><code>readonly rendering: boolean</code></h3>
+        <p>Whether queued progressive creation or virtual-list work remains. One status path covers both.</p>
+        </article>
+        <article id="domsculptor-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Releases everything the runtime owns: scheduled work, signals, effects, stores, and the
+            elements it created. Idempotent. Nodes taken over with <code>wrap</code> or
+            <code>adopt</code> stay in the document; only their listeners and bindings are released.</p>
+        <pre><code>sculptor.dispose();
+sculptor.disposed;   // true</code></pre>
+        </article>
+        <article id="domsculptor-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the runtime has been disposed.</p>
+        </article>
+        <h3 class="type-name">DomSculptorOptions</h3>
+        <article id="domsculptoroptions-development">
+        <h3><code>development?: boolean</code></h3>
+        <p>Enables structured diagnostics. Leave it off in production; the checks are skipped entirely when disabled.</p>
+        </article>
+        <article id="domsculptoroptions-onwarning">
+        <h3><code>onWarning?: (warning: DevelopmentWarning) =&gt; void</code></h3>
+        <p>Receives every diagnostic instead of the console, which makes them assertable in tests.</p>
+        <pre><code>let warnings = [];
+let sculptor = new DomSculptor({ development: true, onWarning: w =&gt; warnings.push(w.code) });</code></pre>
+        </article>
+        <h3 class="type-name">DevDomSculptor</h3>
+        <article id="devdomsculptor-reportleaks">
+        <h3><code>reportLeaks(): number</code></h3>
+        <p>Counts component scopes that are still active, for use at the end of a test.</p>
+        <p class="returns"><strong>Returns.</strong> The number of undisposed component scopes.</p>
+        </article>
+        <h3 class="type-name">DevelopmentWarning</h3>
+        <article id="developmentwarning-code">
+        <h3><code>code: string</code></h3>
+        <p>A stable identifier such as <code>duplicate-list-key</code> or <code>disposed-element-operation</code>, safe to assert on.</p>
+        </article>
+        <article id="developmentwarning-message">
+        <h3><code>message: string</code></h3>
+        <p>A human-readable explanation.</p>
+        </article>
+        <article id="developmentwarning-details">
+        <h3><code>details?: unknown</code></h3>
+        <p>The offending value, when there is one.</p>
+        </article>
+      </div>
+    </section>
+    <section id="elements">
+      <p class="eyebrow">Elements</p>
+      <h2>DomElement</h2>
+      <p class="lede">A thin, owned wrapper around one native node. Mutating methods return the same
+            wrapper so calls chain; <code>html</code> is the escape hatch to the node itself.</p>
+      <div class="reference">
+        <h3 class="type-name">DomElement</h3>
+        <article id="domelement-html">
+        <h3><code>html: T | null</code></h3>
+        <p>The native node. Becomes <code>null</code> once disposed, which is the cheapest way to ask
+            whether a wrapper is still alive.</p>
+        <pre><code>element.html.scrollIntoView();
+if (!element.html) return;   // disposed</code></pre>
+        </article>
+        <article id="domelement-children">
+        <h3><code>readonly children: readonly DomElement[]</code></h3>
+        <p>A frozen snapshot of the owned children, so iterating it cannot be disturbed by changes
+            made while you iterate.</p>
+        <p class="returns"><strong>Returns.</strong> A frozen array of <code>DomElement</code>.</p>
+        </article>
+        <article id="domelement-attribute">
+        <h3><code>attribute: DomAttributes</code></h3>
+        <p>Attribute operations. See <code>DomAttributes</code>.</p>
+        </article>
+        <article id="domelement-class">
+        <h3><code>class: DomClasses</code></h3>
+        <p>Class-list operations. See <code>DomClasses</code>.</p>
+        </article>
+        <article id="domelement-child">
+        <h3><code>child: DomChildren</code></h3>
+        <p>Child operations that keep the DOM and ownership in step. See <code>DomChildren</code>.</p>
+        </article>
+        <article id="domelement-settext">
+        <h3><code>setText(text: unknown): this</code></h3>
+        <p>Replaces all content with a single text node. Markup is never parsed, so untrusted text is
+            safe here.</p>
+        <p class="returns"><strong>Returns.</strong> The same element, for chaining.</p>
+        <pre><code>element.setText('&lt;img src=x onerror=alert(1)&gt;');
+// renders those characters; nothing is executed</code></pre>
+        </article>
+        <article id="domelement-text">
+        <h3><code>text&lt;V&gt;(readable: Readable&lt;V&gt;): this</code></h3>
+        <p>Binds a readable to a dedicated text node, so updates do not disturb sibling content.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> unless given something with <code>get</code> and <code>subscribe</code>.</p>
+        <pre><code>let name = sculptor.signal('Ada');
+sculptor.create('p', '#app').text(name);
+name.set('Grace');   // only the text node changes</code></pre>
+        </article>
+        <article id="domelement-attr">
+        <h3><code>attr&lt;V&gt;(name: string, readable: Readable&lt;V&gt;): this</code></h3>
+        <p>Binds an attribute to a readable. <code>null</code>, <code>undefined</code>, and
+            <code>false</code> remove the attribute; <code>true</code> writes an empty value.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <pre><code>button.attr('disabled', busy);       // present only while busy is truthy
+input.attr('aria-invalid', invalid);</code></pre>
+        </article>
+        <article id="domelement-classtoggle">
+        <h3><code>classToggle&lt;V&gt;(name: string, readable: Readable&lt;V&gt;): this</code></h3>
+        <p>Adds or removes a class from a readable, or several at once from a map. Plain booleans are
+            accepted alongside signals.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <pre><code>row.classToggle('selected', isSelected);
+row.classToggle({
+    'btn-primary': favourited,
+    'btn-outline-primary': sculptor.computed(() =&gt; !favourited.get()),
+    btn: true
+});</code></pre>
+        </article>
+        <article id="domelement-setstyle">
+        <h3><code>setStyle(property: string | Record&lt;string, unknown&gt;, value?: unknown): this</code></h3>
+        <p>Sets one inline style property, or several from an object.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <pre><code>panel.setStyle('color', 'rebeccapurple');
+panel.setStyle({ height: '600px', overflow: 'auto' });</code></pre>
+        </article>
+        <article id="domelement-stylevalue">
+        <h3><code>styleValue&lt;V&gt;(name: string, readable: Readable&lt;V&gt;): this</code></h3>
+        <p>Binds one style property to a readable. <code>null</code> clears the property rather than writing the word.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-getvalue">
+        <h3><code>getValue(): unknown</code></h3>
+        <p>Reads the control value.</p>
+        <p class="returns"><strong>Returns.</strong> The current value.</p>
+        </article>
+        <article id="domelement-setvalue">
+        <h3><code>setValue(value: unknown): this</code></h3>
+        <p>Writes the control value.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-hide">
+        <h3><code>hide(): this</code></h3>
+        <p>Sets <code>display: none</code>, remembering the previous inline value so <code>show()</code> can restore it.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <pre><code>panel.setStyle('display', 'grid');
+panel.hide();
+panel.show();   // display is 'grid' again, not ''</code></pre>
+        </article>
+        <article id="domelement-show">
+        <h3><code>show(): this</code></h3>
+        <p>Restores the display value that was in place before <code>hide()</code>.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-focus">
+        <h3><code>focus(options?: FocusOptions): this</code></h3>
+        <p>Focuses the element. Accepts the native options, including <code>preventScroll</code>.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-blur">
+        <h3><code>blur(): this</code></h3>
+        <p>Removes focus.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-isfocused">
+        <h3><code>isFocused(): boolean</code></h3>
+        <p>Whether this element currently holds focus.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>.</p>
+        </article>
+        <article id="domelement-parent">
+        <h3><code>parent(): DomElement | null</code></h3>
+        <p>The owning parent, reconciled against the real DOM so an external move is reflected.</p>
+        <p class="returns"><strong>Returns.</strong> The parent <code>DomElement</code>, or <code>null</code>.</p>
+        </article>
+        <article id="domelement-closest">
+        <h3><code>closest(selector: string): DomElement | null</code></h3>
+        <p>The nearest ancestor matching a selector, including this element.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>DomElement</code>, or <code>null</code>.</p>
+        </article>
+        <article id="domelement-childrenof">
+        <h3><code>childrenOf(): DomElement[]</code></h3>
+        <p>The owned children as an array.</p>
+        <p class="returns"><strong>Returns.</strong> An array of <code>DomElement</code>.</p>
+        </article>
+        <article id="domelement-before">
+        <h3><code>before(value: DomChild): this</code></h3>
+        <p>Inserts a sibling before this element.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-after">
+        <h3><code>after(value: DomChild): this</code></h3>
+        <p>Inserts a sibling after this element.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-on">
+        <h3><code>on&lt;K extends keyof GlobalEventHandlersEventMap&gt;( event: K, callback: (event: GlobalEventHandlersEventMap[K]) =&gt; void, options?: AddEventListenerOptions | boolean ): this</code></h3>
+        <p>Adds a listener, or delegates when given a selector between the event name and the
+            handler. A delegated handler receives <code>(event, matchedElement)</code> and matches only
+            inside this element, so one listener serves rows that do not exist yet.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> for invalid arguments, or if the element is disposed.</p>
+        <pre><code>button.on('click', () =&gt; save());
+button.on({ focus: onFocus, blur: onBlur });
+
+// one listener for every row, now and later
+list.on('click', 'a.remove', (event, link) =&gt; remove(link.dataset.id));</code></pre>
+        </article>
+        <article id="domelement-once">
+        <h3><code>once&lt;K extends keyof GlobalEventHandlersEventMap&gt;( event: K, callback: (event: GlobalEventHandlersEventMap[K]) =&gt; void, options?: AddEventListenerOptions | boolean ): this</code></h3>
+        <p>Adds a listener that detaches before it is invoked, so a handler cannot re-arm itself.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-off">
+        <h3><code>off(event: string, callback?: EventListener | null): this</code></h3>
+        <p>Removes a listener by handler, or every listener for an event when the handler is
+            omitted. Delegated handlers are removed by the same function you passed in.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-onmount">
+        <h3><code>onMount(callback: (element: this) =&gt; void): this</code></h3>
+        <p>Runs once when the element first becomes connected — immediately if it already is. It
+            does not run again on a later mount.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-onunmount">
+        <h3><code>onUnmount(callback: (element: this) =&gt; void): this</code></h3>
+        <p>Runs on every explicit unmount, child before parent.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-ondispose">
+        <h3><code>onDispose(callback: (element: this) =&gt; void): this</code></h3>
+        <p>Runs once during permanent cleanup, child before parent.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        <p class="note">Disposal detaches the node before tearing the subtree down, so a hook sees the subtree
+            already out of the document; only the element disposal started at has a <code>null</code>
+            <code>parentNode</code>. Read an element's position before disposing it, not from the hook.</p>
+        </article>
+        <article id="domelement-onremove">
+        <h3><code>onRemove(callback: (element: this) =&gt; void): this</code></h3>
+        <p>A compatibility alias for <code>onDispose</code>.</p>
+        <p class="returns"><strong>Returns.</strong> The same element.</p>
+        </article>
+        <article id="domelement-remove">
+        <h3><code>remove(): void</code></h3>
+        <p>A compatibility alias for <code>dispose</code>.</p>
+        </article>
+        <article id="domelement-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Permanently releases the element: its node, listeners, bindings, children, and its entry
+            in the runtime's ownership set. Idempotent, and safe to call from inside a hook.</p>
+        <pre><code>element.dispose();
+element.html;         // null
+element.setText('x'); // throws: the element has been disposed</code></pre>
+        </article>
+        <h3 class="type-name">DomAttributes</h3>
+        <article id="domattributes-set">
+        <h3><code>set(name: string | Record&lt;string, unknown&gt;, value?: unknown): DomElement</code></h3>
+        <p>Sets one attribute, or several from an object.</p>
+        <p class="returns"><strong>Returns.</strong> The owning element.</p>
+        <pre><code>element.attribute.set('role', 'list');
+element.attribute.set({ 'aria-live': 'polite', tabindex: '0' });</code></pre>
+        <p class="note">Never build an attribute <em>name</em> from untrusted input — <code>onclick</code> is an
+            ordinary attribute name to the DOM.</p>
+        </article>
+        <article id="domattributes-remove">
+        <h3><code>remove(name: string): DomElement</code></h3>
+        <p>Removes an attribute.</p>
+        <p class="returns"><strong>Returns.</strong> The owning element.</p>
+        </article>
+        <article id="domattributes-get">
+        <h3><code>get(name: string): string | null</code></h3>
+        <p>Reads an attribute.</p>
+        <p class="returns"><strong>Returns.</strong> The value, or <code>null</code>.</p>
+        </article>
+        <article id="domattributes-has">
+        <h3><code>has(name: string): boolean</code></h3>
+        <p>Whether the attribute is present.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>.</p>
+        </article>
+        <h3 class="type-name">DomClasses</h3>
+        <article id="domclasses-add">
+        <h3><code>add(...values: string[]): DomElement</code></h3>
+        <p>Adds one or more classes.</p>
+        <p class="returns"><strong>Returns.</strong> The owning element.</p>
+        </article>
+        <article id="domclasses-remove">
+        <h3><code>remove(...values: string[]): DomElement</code></h3>
+        <p>Removes one or more classes.</p>
+        <p class="returns"><strong>Returns.</strong> The owning element.</p>
+        </article>
+        <article id="domclasses-toggle">
+        <h3><code>toggle(value: string): DomElement</code></h3>
+        <p>Toggles one class.</p>
+        <p class="returns"><strong>Returns.</strong> The owning element.</p>
+        </article>
+        <article id="domclasses-contains">
+        <h3><code>contains(value: string): boolean</code></h3>
+        <p>Whether the class is present.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>.</p>
+        </article>
+        <h3 class="type-name">DomChildren</h3>
+        <article id="domchildren-append">
+        <h3><code>append(child: DomChild): DomElement</code></h3>
+        <p>Appends a <code>DomElement</code>, native node, or string, keeping the DOM and ownership in
+            step. It returns the element that was added, so a structure can be built downwards without a
+            temporary variable per level; a raw node or string returns the container instead, because
+            there is no wrapper to return.</p>
+        <p class="returns"><strong>Returns.</strong> The appended element, or the container.</p>
+        <pre><code>let leaf = panel.child
+    .append(sculptor.createDetached('section'))
+    .child.append(sculptor.createDetached('p'))
+    .setText('deep');</code></pre>
+        </article>
+        <article id="domchildren-prepend">
+        <h3><code>prepend(child: DomChild): DomElement</code></h3>
+        <p>As <code>append</code>, at the start.</p>
+        <p class="returns"><strong>Returns.</strong> The prepended element, or the container.</p>
+        </article>
+        <article id="domchildren-find">
+        <h3><code>find(selector: string): DomElement | null</code></h3>
+        <p>The first descendant matching a selector, wrapped. One wrapper exists per node, so
+            repeated calls return the same object and cost nothing extra.</p>
+        <p class="returns"><strong>Returns.</strong> A <code>DomElement</code>, or <code>null</code>.</p>
+        </article>
+        <article id="domchildren-findall">
+        <h3><code>findAll(selector: string): DomElement[]</code></h3>
+        <p>Every matching descendant, wrapped.</p>
+        <p class="returns"><strong>Returns.</strong> An array of <code>DomElement</code>.</p>
+        </article>
+        <article id="domchildren-create">
+        <h3><code>create&lt;K extends string&gt;( name: K, callback?: ((element: DomElement&lt;ElementForTag&lt;K&gt;&gt;) =&gt; void) | null ): DomElement&lt;ElementForTag&lt;K&gt;&gt;</code></h3>
+        <p>Creates and appends a child in one call, returning the child.</p>
+        <p class="returns"><strong>Returns.</strong> The new child.</p>
+        </article>
+        <article id="domchildren-remove">
+        <h3><code>remove(): void</code></h3>
+        <p>Disposes the container itself. Named for symmetry with the other child operations, but it
+            removes the parent, not the children.</p>
+        <p class="note">Use <code>clear()</code> to empty a container you intend to keep.</p>
+        </article>
+        <article id="domchildren-clear">
+        <h3><code>clear(): DomElement</code></h3>
+        <p>Disposes every child and empties the container, which survives.</p>
+        <p class="returns"><strong>Returns.</strong> The container.</p>
+        </article>
+        <article id="domchildren-replace">
+        <h3><code>replace(previous: DomElement | Node, next: DomChild): DomElement</code></h3>
+        <p>Swaps one child for another, disposing the one replaced and transferring ownership.</p>
+        <p class="returns"><strong>Returns.</strong> The container.</p>
+        </article>
+      </div>
+    </section>
+    <section id="state">
+      <p class="eyebrow">Reactive state</p>
+      <h2>Signals, computed values, and bindings</h2>
+      <p class="lede">A signal holds a value and notifies on change. Bindings connect one to the DOM and
+            release themselves with the element they wrote into.</p>
+      <div class="reference">
+        <h3 class="type-name">State</h3>
+        <article id="state-set">
+        <h3><code>set(next: T): void</code></h3>
+        <p>Writes a new value and notifies. A write equal to the current value by <code>Object.is</code>
+            does nothing, so <code>NaN</code> is not treated as a change. Writes made inside a
+            subscriber are queued so every subscriber sees the same order.</p>
+        <p class="throws"><strong>Throws.</strong> <code>Error</code> if the signal is disposed.</p>
+        <pre><code>count.set(1);
+count.set(1);   // no notification: equal by Object.is</code></pre>
+        </article>
+        <article id="state-update">
+        <h3><code>update(updater: (value: T) =&gt; T): void</code></h3>
+        <p>Writes a value derived from the current one.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> without a function.</p>
+        <pre><code>count.update(n =&gt; n + 1);
+items.update(list =&gt; list.filter(item =&gt; item.id !== id));</code></pre>
+        </article>
+        <article id="state-bind">
+        <h3><code>bind&lt;E extends Node&gt;(element: DomElement&lt;E&gt;, updater?: ((value: T, element: DomElement&lt;E&gt;) =&gt; void) | FormBindingOptions&lt;T, E&gt;): DomElement&lt;E&gt;</code></h3>
+        <p>The general binding. Given a function it runs on every change with
+            <code>(value, element)</code>; given an options object it behaves as <code>sync</code>. The
+            binding is released when the element is disposed.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        <pre><code>progress.bind(bar, (value, el) =&gt; el.setStyle('width', value + '%'));</code></pre>
+        </article>
+        <article id="state-sync">
+        <h3><code>sync&lt;E extends Node&gt;(element: DomElement&lt;E&gt;, options?: FormBindingOptions&lt;T, E&gt; | ((value: unknown, element: E) =&gt; T)): DomElement&lt;E&gt;</code></h3>
+        <p>Two-way form binding. Writes the signal into the control and the control back into the
+            signal, normalising checkboxes, radio groups, numbers, multiple selects, and IME
+            composition.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>element</code></th><td>The control.</td></tr>
+        <tr><th scope="row"><code>options</code></th><td>A parser function, or <code>FormBindingOptions</code>.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        <pre><code>name.sync(input);
+quantity.sync(numberInput, { parse: Number });
+tags.sync(checkbox, { group: true });</code></pre>
+        </article>
+        <article id="state-list">
+        <h3><code>list&lt;K&gt;(container: DomElement, options: KeyedListOptions&lt;T extends readonly (infer I)[] ? I : never, K&gt;): DomElement</code></h3>
+        <p>Renders an array into a container. The keyed form preserves element identity across
+            reorders, so focus, scroll position, and uncontrolled input survive; the simple form
+            replaces all rows and suits data with no stable identity.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>container</code></th><td>The container element, whose children the list owns.</td></tr>
+        <tr><th scope="row"><code>renderFn</code></th><td>A render function, or <code>KeyedListOptions</code>.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> The container.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> for duplicate keys — raised before any DOM change, so a rejected update leaves the list intact.</p>
+        <pre><code>rows.list(list, {
+    key: row =&gt; row.id,
+    render: row =&gt; sculptor.tree({ tag: 'li', text: row.label }),
+    update: (element, row) =&gt; element.setText(row.label)
+});</code></pre>
+        <p class="note">Reorders move the minimum number of nodes: rows whose relative order has not changed stay
+            where they are.</p>
+        </article>
+        <article id="state-bindtext">
+        <h3><code>bindText(element: DomElement, transform?: (value: T) =&gt; unknown): DomElement</code></h3>
+        <p>One-way binding to a single text node, with an optional transform.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-bindvalue">
+        <h3><code>bindValue(element: DomElement, transform?: (value: T) =&gt; unknown): DomElement</code></h3>
+        <p>One-way binding to a control value.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        <p class="note">One-way by design. Use <code>sync</code> when user input should write back.</p>
+        </article>
+        <article id="state-bindattribute">
+        <h3><code>bindAttribute(element: DomElement, name: string, transform?: (value: T) =&gt; unknown): DomElement</code></h3>
+        <p>One-way binding to one attribute.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-bindclass">
+        <h3><code>bindClass(element: DomElement, name: string, transform?: (value: T) =&gt; boolean): DomElement</code></h3>
+        <p>One-way binding that adds or removes one class.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-bindstyle">
+        <h3><code>bindStyle(element: DomElement, name: string, transform?: (value: T) =&gt; unknown): DomElement</code></h3>
+        <p>One-way binding to one style property.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-bindproperty">
+        <h3><code>bindProperty(element: DomElement, name: string, transform?: (value: T) =&gt; unknown): DomElement</code></h3>
+        <p>One-way binding to a native property, for cases an attribute cannot express.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-bindvisible">
+        <h3><code>bindVisible(element: DomElement, transform?: (value: T) =&gt; boolean): DomElement</code></h3>
+        <p>Shows the element while the value is truthy, hiding it otherwise, through <code>show()</code> and <code>hide()</code>.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-bindhidden">
+        <h3><code>bindHidden(element: DomElement, transform?: (value: T) =&gt; boolean): DomElement</code></h3>
+        <p>The exact mirror of <code>bindVisible</code>: hides while the value is truthy. Both restore the element’s previous display value.</p>
+        <p class="returns"><strong>Returns.</strong> The element.</p>
+        </article>
+        <article id="state-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Releases the signal and every subscription to it. Reads and writes afterwards throw rather than failing quietly.</p>
+        <pre><code>value.dispose();
+value.disposed;  // true
+value.set(1);    // throws</code></pre>
+        </article>
+        <article id="state-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the signal has been disposed.</p>
+        </article>
+        <h3 class="type-name">Computed</h3>
+        <article id="computed-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Releases the computed value and the subscriptions it discovered.</p>
+        </article>
+        <article id="computed-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the computed value has been disposed.</p>
+        </article>
+        <h3 class="type-name">Readable</h3>
+        <article id="readable-get">
+        <h3><code>get(): T</code></h3>
+        <p>Reads the current value. Synchronous, and registers with an enclosing computed value or effect so it is tracked.</p>
+        <p class="returns"><strong>Returns.</strong> The current value.</p>
+        </article>
+        <article id="readable-subscribe">
+        <h3><code>subscribe(callback: (value: T) =&gt; void, options?: SubscriptionOptions): Unsubscribe</code></h3>
+        <p>Calls back on every change until unsubscribed. A subscription made inside a scope belongs
+            to that scope and is released with it; outside a scope, the returned function is yours to
+            call.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>callback</code></th><td>Receives the new value.</td></tr>
+        <tr><th scope="row"><code>options</code></th><td><code>immediate</code> delivers the current value at once; <code>signal</code> unsubscribes on abort.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> An unsubscribe function.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> without a function, or if the signal is disposed.</p>
+        <pre><code>let stop = total.subscribe(value =&gt; console.log(value), { immediate: true });
+stop();</code></pre>
+        </article>
+        <h3 class="type-name">SubscriptionOptions</h3>
+        <article id="subscriptionoptions-immediate">
+        <h3><code>immediate?: boolean</code></h3>
+        <p>Deliver the current value to the callback as soon as it subscribes.</p>
+        </article>
+        <article id="subscriptionoptions-signal">
+        <h3><code>signal?: AbortSignal</code></h3>
+        <p>An <code>AbortSignal</code>; aborting unsubscribes. An already-aborted signal never subscribes.</p>
+        </article>
+        <h3 class="type-name">KeyedListOptions</h3>
+        <article id="keyedlistoptions-key">
+        <h3><code>key(item: T, index: number): K</code></h3>
+        <p>Returns a stable identity per item. Identity is what lets a row keep its node across a
+            reorder. Duplicates are rejected before the DOM is touched.</p>
+        </article>
+        <article id="keyedlistoptions-render">
+        <h3><code>render(item: T, index: number): DomElement</code></h3>
+        <p>Builds a row. Called once per new key; must return a live <code>DomElement</code>.</p>
+        </article>
+        <article id="keyedlistoptions-update">
+        <h3><code>update?(element: DomElement, item: T, index: number): void</code></h3>
+        <p>Applies changed data to a row that already exists. Keyed rows are reused, so anything
+            applied in <code>render</code> that depends on the item must be reapplied here — or bound to
+            a signal, which cannot go stale.</p>
+        </article>
+        <h3 class="type-name">FormBindingOptions</h3>
+        <article id="formbindingoptions-event">
+        <h3><code>event?: string</code></h3>
+        <p>The DOM event that writes back. Defaults to <code>input</code> for text and <code>change</code> for the rest.</p>
+        </article>
+        <article id="formbindingoptions-parse">
+        <h3><code>parse?: (value: unknown, element: E) =&gt; T</code></h3>
+        <p>Converts the raw control value before it reaches the signal. Ignored when
+            <code>get</code> is supplied, because a custom read already returns the value the signal
+            should hold.</p>
+        </article>
+        <article id="formbindingoptions-get">
+        <h3><code>get?: (element: E) =&gt; T</code></h3>
+        <p>Replaces the entire read, including <code>parse</code>. Receives the <strong>native
+            node</strong>, not the wrapper.</p>
+        <pre><code>picked.sync(control, {
+    get: node =&gt; node.dataset.value,
+    set: (node, value) =&gt; { node.dataset.value = value; }
+});</code></pre>
+        </article>
+        <article id="formbindingoptions-set">
+        <h3><code>set?: (element: E, value: T) =&gt; void</code></h3>
+        <p>Replaces the entire write. Receives the native node.</p>
+        </article>
+        <article id="formbindingoptions-group">
+        <h3><code>group?: boolean</code></h3>
+        <p>Treats a checkbox as part of a group whose signal holds an array of the checked values.</p>
+        </article>
+        <article id="formbindingoptions-multiple">
+        <h3><code>multiple?: boolean</code></h3>
+        <p>Treats a select as multiple, so the signal holds an array.</p>
+        </article>
+      </div>
+    </section>
+    <section id="stores">
+      <p class="eyebrow">Keyed state</p>
+      <h2>Stores</h2>
+      <p class="lede">A store is an object of independently observable keys, with a signal available per
+            key when you want to bind one field.</p>
+      <div class="reference">
+        <h3 class="type-name">DataStore</h3>
+        <article id="datastore-get">
+        <h3><code>get(): T</code></h3>
+        <p>Reads one key, or the whole record when called with no argument.</p>
+        <p class="returns"><strong>Returns.</strong> The value for the key, or a snapshot of every key.</p>
+        <pre><code>profile.get('theme');   // 'dark'
+profile.get();          // { name: 'Ada', theme: 'dark' }</code></pre>
+        </article>
+        <article id="datastore-set">
+        <h3><code>set&lt;K extends keyof T&gt;(key: K, value: T[K]): this</code></h3>
+        <p>Writes one key, or several from an object. Each key notifies independently, so a binding
+            on one field is not woken by a change to another.</p>
+        <p class="returns"><strong>Returns.</strong> The store.</p>
+        <pre><code>profile.set('theme', 'light');
+profile.set({ name: 'Grace', theme: 'dark' });</code></pre>
+        </article>
+        <article id="datastore-update">
+        <h3><code>update&lt;K extends keyof T&gt;(key: K, updater: (value: T[K]) =&gt; T[K]): this</code></h3>
+        <p>Writes one key from its current value.</p>
+        <p class="returns"><strong>Returns.</strong> The store.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> without an updater function.</p>
+        <pre><code>cart.update('count', n =&gt; n + 1);</code></pre>
+        </article>
+        <article id="datastore-has">
+        <h3><code>has(key: PropertyKey): boolean</code></h3>
+        <p>Whether a key is present.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>.</p>
+        </article>
+        <article id="datastore-delete">
+        <h3><code>delete(key: keyof T): boolean</code></h3>
+        <p>Removes a key, notifying its observers with <code>undefined</code>. Listeners stay
+            attached, so they fire again if the key is set later.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>, whether the key existed.</p>
+        </article>
+        <article id="datastore-signal">
+        <h3><code>signal&lt;K extends keyof T&gt;(key: K): State&lt;T[K]&gt;</code></h3>
+        <p>A readable for one key, so a single field can be bound without re-rendering anything else.</p>
+        <p class="returns"><strong>Returns.</strong> A readable signal for that key.</p>
+        <pre><code>profile.signal('theme').bindText(themeLabel);</code></pre>
+        </article>
+        <article id="datastore-onchange">
+        <h3><code>onChange&lt;K extends keyof T&gt;( key: K, callback: (value: T[K], previous: T[K] | undefined, key: K) =&gt; void, options?: SubscriptionOptions ): Unsubscribe</code></h3>
+        <p>Observes one key. Accepts an <code>AbortSignal</code> to stop observing.</p>
+        <p class="returns"><strong>Returns.</strong> An unsubscribe function.</p>
+        </article>
+        <article id="datastore-onanychange">
+        <h3><code>onAnyChange( callback: &lt;K extends keyof T&gt;(key: K, value: T[K], previous: T[K] | undefined) =&gt; void, options?: SubscriptionOptions ): Unsubscribe</code></h3>
+        <p>Observes every key, receiving <code>(key, value, previous)</code>.</p>
+        <p class="returns"><strong>Returns.</strong> An unsubscribe function.</p>
+        </article>
+        <article id="datastore-offchange">
+        <h3><code>offChange&lt;K extends keyof T&gt;(key: K, callback?: ((value: T[K]) =&gt; void) | null): this</code></h3>
+        <p>Removes an observer by key and callback.</p>
+        </article>
+        <article id="datastore-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Releases the store, its per-key signals, and every observer.</p>
+        </article>
+        <article id="datastore-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the store has been disposed.</p>
+        </article>
+      </div>
+    </section>
+    <section id="async">
+      <p class="eyebrow">Asynchronous work</p>
+      <h2>Async state</h2>
+      <p class="lede">Status, data, and error in one snapshot, with cancellation built in. Runs never
+            reject: the snapshot is the result.</p>
+      <div class="reference">
+        <h3 class="type-name">AsyncState</h3>
+        <article id="asyncstate-run">
+        <h3><code>run&lt;R extends T = T&gt;( task: (context: { signal: AbortSignal }) =&gt; Promise&lt;R&gt; | R, options?: { abortPrevious?: boolean } ): Promise&lt;AsyncSnapshot&lt;T&gt;&gt;</code></h3>
+        <p>Runs a task, moving through <code>loading</code> (or <code>refreshing</code> when data is
+            already held) to <code>success</code> or <code>error</code>. A later run aborts the earlier
+            one by default, and a superseded result can never overwrite a newer one.</p>
+        <table class="params"><tbody>
+        <tr><th scope="row"><code>task</code></th><td>Receives <code>{ signal }</code> to pass to <code>fetch</code> or any abortable work.</td></tr>
+        <tr><th scope="row"><code>options</code></th><td><code>abortPrevious: false</code> lets runs overlap.</td></tr>
+        </tbody></table>
+        <p class="returns"><strong>Returns.</strong> A promise resolving to the resulting snapshot. It never rejects — read <code>error</code>.</p>
+        <pre><code>let { status, data, error } = await users.run(({ signal }) =&gt;
+    fetch('/api/users', { signal }).then(response =&gt; response.json())
+);
+if (status === 'error') report(error);</code></pre>
+        </article>
+        <article id="asyncstate-retry">
+        <h3><code>retry(): Promise&lt;AsyncSnapshot&lt;T&gt;&gt;</code></h3>
+        <p>Runs the previous task again.</p>
+        <p class="returns"><strong>Returns.</strong> A promise resolving to the resulting snapshot.</p>
+        </article>
+        <article id="asyncstate-cancel">
+        <h3><code>cancel(): void</code></h3>
+        <p>Aborts work in flight and returns to <code>idle</code>, or to <code>success</code> when data is already held.</p>
+        </article>
+        <article id="asyncstate-reset">
+        <h3><code>reset(): void</code></h3>
+        <p>Aborts work in flight and returns to the initial data and <code>idle</code>.</p>
+        </article>
+        <article id="asyncstate-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Aborts work in flight and releases the state from its scope, without waiting for the scope
+            itself. Idempotent.</p>
+        <p class="note">Disposal aborts but does not announce: subscribers are not notified, because they are being disposed alongside it.</p>
+        </article>
+        <article id="asyncstate-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the async state has been disposed.</p>
+        </article>
+        <h3 class="type-name">AsyncSnapshot</h3>
+        <article id="asyncsnapshot-status">
+        <h3><code>status: 'idle' | 'loading' | 'refreshing' | 'success' | 'error'</code></h3>
+        <p>One of <code>idle</code>, <code>loading</code>, <code>refreshing</code>, <code>success</code>, or <code>error</code>. <code>refreshing</code> means existing data is retained while a new request runs.</p>
+        </article>
+        <article id="asyncsnapshot-data">
+        <h3><code>data: T | null</code></h3>
+        <p>The last successful value, retained across a refresh and across a failure.</p>
+        </article>
+        <article id="asyncsnapshot-error">
+        <h3><code>error: unknown</code></h3>
+        <p>The failure, when the status is <code>error</code>.</p>
+        </article>
+      </div>
+    </section>
+    <section id="structure">
+      <p class="eyebrow">Declarative structure</p>
+      <h2>Trees</h2>
+      <p class="lede"><code>tree()</code> builds a detached hierarchy from a configuration object. Text is
+            always text; reactive values are accepted for text, attributes, classes, and children.</p>
+      <div class="reference">
+        <h3 class="type-name">TreeConfig</h3>
+        <article id="treeconfig-tag">
+        <h3><code>tag: K</code></h3>
+        <p>The tag to create. Required.</p>
+        </article>
+        <article id="treeconfig-text">
+        <h3><code>text?: unknown | Readable&lt;unknown&gt;</code></h3>
+        <p>Text content, or a readable for reactive text. Always written as a text node; markup is never parsed.</p>
+        </article>
+        <article id="treeconfig-attributes">
+        <h3><code>attributes?: Record&lt;string, unknown | Readable&lt;unknown&gt;&gt;</code></h3>
+        <p>Attributes to set. A value may be a readable, which binds the attribute.</p>
+        <pre><code>{ tag: 'button', attributes: { type: 'button', disabled: busy } }</code></pre>
+        </article>
+        <article id="treeconfig-class">
+        <h3><code>class?: string | readonly string[] | Record&lt;string, Readable&lt;unknown&gt; | boolean&gt;</code></h3>
+        <p>A class name, an array of them, or a map of name to readable or boolean, which binds each
+            class.</p>
+        <pre><code>{ tag: 'div', class: { panel: true, 'is-busy': busy } }</code></pre>
+        </article>
+        <article id="treeconfig-properties">
+        <h3><code>properties?: Record&lt;string, unknown&gt;</code></h3>
+        <p>Native properties written verbatim.</p>
+        <p class="note">This is a deliberate escape hatch, not a text path: <code>properties: { innerHTML }</code>
+            parses markup exactly as the DOM would. Never pass untrusted input through it.</p>
+        </article>
+        <article id="treeconfig-on">
+        <h3><code>on?: Record&lt;string, EventListener | { handler: EventListener; options?: AddEventListenerOptions | boolean }&gt;</code></h3>
+        <p>An event map. A value may be a handler, or <code>{ handler, options }</code> for listener options.</p>
+        </article>
+        <article id="treeconfig-children">
+        <h3><code>children?: readonly TreeChild[] | TreeList&lt;any&gt;</code></h3>
+        <p>An array of child configurations, elements, nodes, or strings — or a reactive list, which
+            renders the container's entire contents.</p>
+        <pre><code>{
+    tag: 'ul',
+    children: {
+        each: rows,
+        key: row =&gt; row.id,
+        render: row =&gt; sculptor.tree({ tag: 'li', text: row.label }),
+        update: (element, row) =&gt; element.setText(row.label)
+    }
+}</code></pre>
+        </article>
+        <article id="treeconfig-ref">
+        <h3><code>ref?: string</code></h3>
+        <p>Names this node in the <code>refs</code> object given at the root, so it can be reached without a selector.</p>
+        </article>
+        <article id="treeconfig-refs">
+        <h3><code>refs?: Record&lt;string, DomElement&gt;</code></h3>
+        <p>Root level only: an object filled with every node in the tree that declares a <code>ref</code>.</p>
+        <pre><code>let refs = {};
+sculptor.tree({ tag: 'form', refs, children: [{ tag: 'input', ref: 'email' }] });
+refs.email.setValue('someone@example.com');</code></pre>
+        </article>
+        <h3 class="type-name">TreeList</h3>
+        <article id="treelist-each">
+        <h3><code>each: Readable&lt;readonly T[]&gt;</code></h3>
+        <p>The readable holding the collection.</p>
+        </article>
+        <article id="treelist-key">
+        <h3><code>key?: (item: T, index: number) =&gt; unknown</code></h3>
+        <p>Optional. With a key the list is keyed and rows keep their identity; without one, rows are replaced.</p>
+        </article>
+        <article id="treelist-render">
+        <h3><code>render: (item: T, index: number) =&gt; DomElement</code></h3>
+        <p>Builds a row.</p>
+        </article>
+        <article id="treelist-update">
+        <h3><code>update?: (element: DomElement, item: T, index: number) =&gt; void</code></h3>
+        <p>Applies changed data to a reused row.</p>
+        </article>
+      </div>
+    </section>
+    <section id="virtual">
+      <p class="eyebrow">Large collections</p>
+      <h2>Virtual lists</h2>
+      <p class="lede">Only the visible range plus overscan exists in the DOM, while a spacer of the full
+            collection height keeps the scrollbar honest.</p>
+      <div class="reference">
+        <h3 class="type-name">VirtualListOptions</h3>
+        <article id="virtuallistoptions-rowheight">
+        <h3><code>rowHeight: number</code></h3>
+        <p>Fixed row height in pixels. Required, and the basis for every range calculation.</p>
+        </article>
+        <article id="virtuallistoptions-render">
+        <h3><code>render(item: T, index: number): DomElement | VirtualRow</code></h3>
+        <p>Builds a row from an item. May return a <code>DomElement</code> or a reusable <code>VirtualRow</code>.</p>
+        </article>
+        <article id="virtuallistoptions-overscan">
+        <h3><code>overscan?: number</code></h3>
+        <p>Extra rows kept above and below the viewport, smoothing fast scrolling. Defaults to 4.</p>
+        </article>
+        <article id="virtuallistoptions-key">
+        <h3><code>key?(item: T, index: number): unknown</code></h3>
+        <p>Stable identity per item, enabling row reuse across updates. Duplicates are rejected before any DOM change.</p>
+        </article>
+        <article id="virtuallistoptions-aria">
+        <h3><code>aria?: boolean</code></h3>
+        <p>Set <code>false</code> to omit the <code>role</code> and position metadata when you are supplying your own.</p>
+        </article>
+        <h3 class="type-name">VirtualRow</h3>
+        <article id="virtualrow-root">
+        <h3><code>root: DomElement</code></h3>
+        <p>The row element.</p>
+        </article>
+        <article id="virtualrow-update">
+        <h3><code>update?(item: unknown, index: number): void</code></h3>
+        <p>Applies a different item to a reused row.</p>
+        <p class="note">Not called while the row holds focus, so a refresh cannot overwrite a half-typed value.</p>
+        </article>
+        <article id="virtualrow-dispose">
+        <h3><code>dispose?(): void</code></h3>
+        <p>Releases anything the row owns beyond its element, called when the row leaves the mounted range.</p>
+        </article>
+        <h3 class="type-name">VirtualListStatus</h3>
+        <article id="virtualliststatus-rendering">
+        <h3><code>readonly rendering: boolean</code></h3>
+        <p>Whether a pass is queued.</p>
+        </article>
+        <article id="virtualliststatus-start">
+        <h3><code>readonly start: number</code></h3>
+        <p>First mounted index, including overscan.</p>
+        </article>
+        <article id="virtualliststatus-end">
+        <h3><code>readonly end: number</code></h3>
+        <p>One past the last mounted index.</p>
+        </article>
+        <article id="virtualliststatus-mounted">
+        <h3><code>readonly mounted: number</code></h3>
+        <p>How many rows exist in the DOM — the number to watch against <code>total</code>.</p>
+        </article>
+        <article id="virtualliststatus-total">
+        <h3><code>readonly total: number</code></h3>
+        <p>Size of the whole collection.</p>
+        </article>
+        <h3 class="type-name">VirtualScrollOptions</h3>
+        <article id="virtualscrolloptions-align">
+        <h3><code>align?: 'start' | 'center' | 'end' | 'nearest'</code></h3>
+        <p><code>start</code>, <code>center</code>, <code>end</code>, or <code>nearest</code>. Defaults to <code>nearest</code>.</p>
+        </article>
+      </div>
+    </section>
+    <section id="routing">
+      <p class="eyebrow">Routing</p>
+      <h2>Router</h2>
+      <p class="lede">One route mounted at a time, each view in its own scope, with the previous view
+            disposed on every change.</p>
+      <div class="reference">
+        <h3 class="type-name">Router</h3>
+        <article id="router-current">
+        <h3><code>current: Readable&lt;RouteSnapshot&gt;</code></h3>
+        <p>A readable snapshot of the active route, for titles, navigation state, and derived values.</p>
+        </article>
+        <article id="router-navigate">
+        <h3><code>navigate(path: string): void</code></h3>
+        <p>Navigates by <code>pushState</code>, or by fragment in hash mode.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> for an empty path.</p>
+        </article>
+        <article id="router-replace">
+        <h3><code>replace(path: string): void</code></h3>
+        <p>As <code>navigate</code>, replacing the current history entry.</p>
+        </article>
+        <article id="router-stop">
+        <h3><code>stop(): void</code></h3>
+        <p>Stops routing, removes the listener, and disposes the mounted view and its scope. Idempotent.</p>
+        </article>
+        <article id="router-stopped">
+        <h3><code>readonly stopped: boolean</code></h3>
+        <p>Whether the router has been stopped.</p>
+        </article>
+        <h3 class="type-name">RouteSnapshot</h3>
+        <article id="routesnapshot-path">
+        <h3><code>path: string</code></h3>
+        <p>The matched path.</p>
+        </article>
+        <article id="routesnapshot-route">
+        <h3><code>route: string | null</code></h3>
+        <p>The pattern that matched, or <code>null</code> when nothing did.</p>
+        </article>
+        <article id="routesnapshot-params">
+        <h3><code>params: Record&lt;string, string&gt;</code></h3>
+        <p>Decoded parameters. A <code>*</code> route provides <code>rest</code>.</p>
+        <p class="note"><code>*</code> is a whole-path wildcard, so <code>'*'</code> keeps the leading slash in
+            <code>rest</code> while <code>'/*'</code> captures only the remainder.</p>
+        </article>
+        <h3 class="type-name">RouteViewSnapshot</h3>
+        <article id="routeviewsnapshot-scope">
+        <h3><code>scope: DisposalScope</code></h3>
+        <p>The scope the router created for this view. Ask <code>scope.disposed</code> in an
+            asynchronous continuation to find out whether the route is still on screen.</p>
+        <pre><code>'/posts/:slug': ({ params, scope }) =&gt; {
+    let post = sculptor.signal(null);
+    load(params.slug).then(value =&gt; {
+        if (scope.disposed) return;   // the reader navigated away
+        post.set(value);
+    });
+    return view(post);
+}</code></pre>
+        </article>
+        <h3 class="type-name">RouterOptions</h3>
+        <article id="routeroptions-parent">
+        <h3><code>parent?: string | Node | DomElement</code></h3>
+        <p>The outlet the active view is mounted into. Defaults to <code>document.body</code>.</p>
+        </article>
+        <article id="routeroptions-hash">
+        <h3><code>hash?: boolean</code></h3>
+        <p>Route on the URL fragment instead of the path, for static hosting and extensions that cannot rewrite server paths.</p>
+        </article>
+      </div>
+    </section>
+    <section id="components">
+      <p class="eyebrow">Composition and lifetime</p>
+      <h2>Components, scopes, and contexts</h2>
+      <p class="lede">A component is a factory with a disposal scope. A scope owns whatever is created
+            inside it. A context passes values down without threading them through props.</p>
+      <div class="reference">
+        <h3 class="type-name">ComponentDefinition</h3>
+        <article id="componentdefinition-root">
+        <h3><code>root: DomElement | Node</code></h3>
+        <p>The element the component renders. Required.</p>
+        </article>
+        <article id="componentdefinition-api">
+        <h3><code>api?: A</code></h3>
+        <p>Methods the parent may call, kept separate from the DOM so a component exposes behaviour rather than internals.</p>
+        </article>
+        <article id="componentdefinition-dispose">
+        <h3><code>dispose?: () =&gt; void</code></h3>
+        <p>Extra cleanup, run with the component’s scope.</p>
+        </article>
+        <h3 class="type-name">ComponentInstance</h3>
+        <article id="componentinstance-root">
+        <h3><code>root: DomElement</code></h3>
+        <p>The rendered element.</p>
+        </article>
+        <article id="componentinstance-api">
+        <h3><code>api: A</code></h3>
+        <p>Whatever the definition exposed.</p>
+        </article>
+        <article id="componentinstance-scope">
+        <h3><code>scope: DisposalScope</code></h3>
+        <p>The disposal scope owning everything the factory created.</p>
+        </article>
+        <article id="componentinstance-context">
+        <h3><code>context: Context</code></h3>
+        <p>The context the instance was created with.</p>
+        </article>
+        <article id="componentinstance-name">
+        <h3><code>name: string</code></h3>
+        <p>The name from options, or the factory’s name. Used in diagnostics.</p>
+        </article>
+        <article id="componentinstance-createdat">
+        <h3><code>createdAt?: string</code></h3>
+        <p>A creation stack, captured only on a development runtime, for tracing a leaked instance back to its origin.</p>
+        </article>
+        <article id="componentinstance-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Disposes the scope, and with it the root and everything created inside the factory. Idempotent.</p>
+        </article>
+        <article id="componentinstance-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the instance has been disposed.</p>
+        </article>
+        <h3 class="type-name">DisposalScope</h3>
+        <article id="disposalscope-track">
+        <h3><code>track&lt;T extends () =&gt; unknown&gt;(cleanup: T): T</code></h3>
+        <p>Registers custom cleanup, for resources the library does not own itself.</p>
+        <p class="returns"><strong>Returns.</strong> The cleanup function.</p>
+        <p class="throws"><strong>Throws.</strong> <code>TypeError</code> without a function.</p>
+        <pre><code>scope.track(() =&gt; clearInterval(timer));</code></pre>
+        </article>
+        <article id="disposalscope-run">
+        <h3><code>run&lt;T&gt;(callback: () =&gt; T): T</code></h3>
+        <p>Runs a callback with this scope active, so everything created inside belongs to it.</p>
+        <p class="returns"><strong>Returns.</strong> Whatever the callback returns.</p>
+        <p class="throws"><strong>Throws.</strong> <code>Error</code> if the scope is already disposed.</p>
+        </article>
+        <article id="disposalscope-dispose">
+        <h3><code>dispose(): void</code></h3>
+        <p>Releases everything in reverse order of creation, so a subscription made after the element
+            it writes into is released first. Every cleanup is attempted even when some fail, and
+            multiple failures are reported together as an <code>AggregateError</code>.</p>
+        </article>
+        <article id="disposalscope-disposed">
+        <h3><code>readonly disposed: boolean</code></h3>
+        <p>Whether the scope has been disposed.</p>
+        </article>
+        <h3 class="type-name">Context</h3>
+        <article id="context-get">
+        <h3><code>get&lt;T&gt;(key: ContextKey&lt;T&gt;, fallback?: T): T</code></h3>
+        <p>Reads a value, falling back through parent contexts and then to the supplied default.</p>
+        <p class="returns"><strong>Returns.</strong> The value, or the fallback.</p>
+        </article>
+        <article id="context-has">
+        <h3><code>has(key: symbol): boolean</code></h3>
+        <p>Whether the key resolves here or in a parent.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>.</p>
+        </article>
+        <article id="context-set">
+        <h3><code>set&lt;T&gt;(key: ContextKey&lt;T&gt;, value: T): this</code></h3>
+        <p>Sets a value on this context.</p>
+        <p class="returns"><strong>Returns.</strong> The context.</p>
+        </article>
+        <article id="context-delete">
+        <h3><code>delete(key: symbol): boolean</code></h3>
+        <p>Removes a local value, after which the key resolves through the parent again.</p>
+        <p class="returns"><strong>Returns.</strong> <code>boolean</code>.</p>
+        </article>
+        <article id="context-child">
+        <h3><code>child(initial?: Map&lt;symbol, unknown&gt; | Record&lt;PropertyKey, unknown&gt; | null): Context</code></h3>
+        <p>Creates a child context that inherits from this one and may override any key.</p>
+        <p class="returns"><strong>Returns.</strong> The child <code>Context</code>.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+  <footer><span>DOMSculptor in-depth reference</span><span>Version 3.0.0</span></footer>
+</body>
+</html>
