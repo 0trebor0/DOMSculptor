@@ -93,6 +93,33 @@ class DisposalScope {
 }
 
 // Accept cross-realm and test-double nodes without relying only on instanceof.
+// Rows whose relative order is unchanged form a longest increasing subsequence of
+// their previous positions. Keeping those in place and moving only the rest is the
+// minimum number of DOM moves a keyed reorder needs; placing every row by index
+// instead costs one move per row for a single swap.
+let longestIncreasingRun = positions => {
+    let tails = [];
+    let parents = new Array(positions.length);
+    for (let index = 0; index < positions.length; index++) {
+        let position = positions[index];
+        if (position < 0) continue;
+        let low = 0;
+        let high = tails.length;
+        while (low < high) {
+            let middle = (low + high) >> 1;
+            if (positions[tails[middle]] < position) low = middle + 1;
+            else high = middle;
+        }
+        parents[index] = low > 0 ? tails[low - 1] : -1;
+        tails[low] = index;
+    }
+    let keep = new Set();
+    for (let index = tails.length ? tails[tails.length - 1] : -1; index >= 0; index = parents[index]) {
+        keep.add(index);
+    }
+    return keep;
+};
+
 let isNode = value => {
     if (typeof Node !== 'undefined' && value instanceof Node) return true;
     return value !== null && typeof value === 'object' &&
@@ -574,7 +601,9 @@ class DomElement {
             element.remove();
             return;
         }
-        Array.from(node.childNodes || []).forEach(child => this._cleanupKnownNode(child));
+        // Text nodes are the common case here and have no children to walk.
+        if (!node.firstChild) return;
+        Array.from(node.childNodes).forEach(child => this._cleanupKnownNode(child));
     }
 
     _clearChildren() {
@@ -650,6 +679,10 @@ class DomElement {
         this._removing = true;
         let errors = [];
         this._detachFromParent();
+        // Detaching this node before its subtree is disposed keeps every
+        // descendant's own removal off the document, where it costs the engine no
+        // layout or style work.
+        if (this.html.parentNode) this.html.parentNode.removeChild(this.html);
         try { this._clearChildren(); } catch (error) { errors.push(error); }
         let disposeCallbacks = this._removeCallbacks.splice(0);
         disposeCallbacks.forEach(callback => {
@@ -668,7 +701,6 @@ class DomElement {
         this._listeners = {};
         this._untrackers.forEach(untrack => untrack());
         this._untrackers = [];
-        if (this.html?.parentNode) this.html.parentNode.removeChild(this.html);
         this._sculptor?._elements?.delete(this.html);
         DomSculptor._owners.delete(this.html);
         this.html = null;
@@ -1863,20 +1895,40 @@ class DomSculptor {
                             }
                         });
 
+                        // Ownership is rebuilt wholesale below, so the container's child
+                        // list is emptied first: leaving it populated makes every row's
+                        // detach scan it, which is quadratic in the size of the list.
+                        container._children = [];
                         records.forEach((record, key) => {
                             if (nextRecords.has(key)) return;
                             try { record.element.remove(); } catch (error) { errors.push(error); }
                         });
 
                         let ordered = Array.from(nextRecords.values(), record => record.element);
-                        ordered.forEach((element, index) => {
-                            if (!element.html) return;
-                            let reference = container.html.childNodes[index] || null;
-                            if (reference !== element.html) container.html.insertBefore(element.html, reference);
+                        let previousPositions = new Map();
+                        records.forEach((record, key) => previousPositions.set(key, previousPositions.size));
+                        let settled = longestIncreasingRun(
+                            Array.from(nextRecords.keys(), key => (
+                                previousPositions.has(key) ? previousPositions.get(key) : -1
+                            ))
+                        );
+                        // Placing right to left means the node each row is inserted before
+                        // is already in its final position.
+                        let following = null;
+                        for (let index = ordered.length - 1; index >= 0; index--) {
+                            let element = ordered[index];
+                            if (!element.html) continue;
+                            if (!settled.has(index) || element.html.parentNode !== container.html) {
+                                container.html.insertBefore(element.html, following);
+                            }
+                            following = element.html;
+                            // A row this container already owns and has already mounted
+                            // needs no ownership or mount work on a later pass.
+                            if (element._parent === container && element.html.isConnected) continue;
                             element._detachFromParent();
                             element._parent = container;
                             element._notifyMount();
-                        });
+                        }
                         container._children = ordered.filter(element => element.html);
                         records = nextRecords;
                         if (focused?.isConnected && ownerDocument?.activeElement !== focused &&

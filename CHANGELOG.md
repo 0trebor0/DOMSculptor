@@ -49,9 +49,26 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Keyed lists reorder with the minimum number of DOM moves. Rows whose relative
+  order is unchanged now stay where they are, and only the rows that actually
+  moved are re-inserted; previously each row was placed by its index, so a single
+  swap of two rows moved every row between them. Swapping two rows in a
+  thousand-row list went from 32.4 ms to 2.7 ms.
+- Keyed list updates no longer re-register ownership for rows the container
+  already owns, and the container's child list is rebuilt once per pass rather
+  than spliced per row. Both were quadratic in the length of the list. In the
+  project's own benchmark, and together with the disposal change below,
+  append-one went from 2.8 ms to 0.7 ms, prepend-one from 2.7 ms to 0.8 ms,
+  remove-middle from 2.7 ms to 0.8 ms, and swap-two from 3.8 ms to 0.7 ms.
+- Disposing an element now removes its node from the document before its subtree
+  is torn down, so every descendant is disposed off the document where removal
+  costs the engine no layout or style work. Clearing a thousand rows of eight
+  elements went from 14.4 ms to 9.0 ms. `onRemove` and `onDispose` hooks
+  consequently observe a node whose `parentNode` is already `null`; they
+  previously saw it still attached.
 - The gzip budget enforced by `npm run size` moved from 10 KB to 13 KB to make
   room for automatic dependency tracking, runtime ownership, routing, and
-  virtualization. The build currently measures 12377 bytes.
+  virtualization. The build currently measures 12572 bytes.
 - `computed(fn)` and `effect(fn)` called without a dependency list previously
   never re-ran; they now track their reads. Calls that pass a dependency list
   are unaffected. Pass an empty list to keep the evaluate-once behavior.

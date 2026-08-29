@@ -297,6 +297,12 @@ unmount, child before parent. `onDispose()` runs once during permanent cleanup,
 also child before parent. Every hook is attempted when several throw, with
 multiple failures reported as `AggregateError`.
 
+A dispose hook receives an element whose node is already detached, so
+`el.html.parentNode` is `null` inside it. Disposal removes the node before it
+tears the subtree down, which is what keeps clearing a large list cheap. Read
+whatever you need about an element's position before disposing it, not from the
+hook.
+
 `onRemove()` and `remove()` remain compatibility aliases for `onDispose()` and
 `dispose()`. Moving an element between parents does not dispose or invoke
 temporary-unmount hooks.

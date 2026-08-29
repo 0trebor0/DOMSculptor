@@ -1597,6 +1597,52 @@ test('keyed list writes are deduplicated into one rendering pass', () => {
     assert.equal(container.children[0].html.textContent, 'three');
 });
 
+test('keyed reorders move only the rows whose relative order changed', () => {
+    let sculptor = new DomSculptor();
+    let build = count => Array.from({ length: count }, (unused, id) => ({ id }));
+    let items = sculptor.signal(build(10));
+    let container = sculptor.create('ul');
+    items.list(container, {
+        key: item => item.id,
+        render: item => sculptor.create('li').setText(String(item.id))
+    });
+
+    let moves = 0;
+    let insertBefore = container.html.insertBefore.bind(container.html);
+    container.html.insertBefore = (child, reference) => {
+        moves++;
+        return insertBefore(child, reference);
+    };
+    let apply = next => {
+        moves = 0;
+        items.set(next);
+        sculptor.flush();
+        return moves;
+    };
+    let order = () => container.children.map(element => element.html.textContent);
+
+    let swapped = build(10);
+    swapped[1] = { id: 8 };
+    swapped[8] = { id: 1 };
+    // Two rows changed places, so two rows move. Placing every row by its index
+    // instead would move every row between them as well.
+    assert.equal(apply(swapped), 2);
+    assert.deepEqual(order(), ['0', '8', '2', '3', '4', '5', '6', '7', '1', '9']);
+
+    assert.equal(apply(build(10)), 2);
+    assert.deepEqual(order(), ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+
+    assert.equal(apply(build(12)), 2);
+    assert.deepEqual(order().slice(9), ['9', '10', '11']);
+
+    assert.equal(apply(build(12).filter(item => item.id !== 5)), 0);
+    assert.equal(container.children.length, 11);
+
+    let prepended = [{ id: 99 }, ...build(12).filter(item => item.id !== 5)];
+    assert.equal(apply(prepended), 1);
+    assert.equal(order()[0], '99');
+});
+
 test('keyed lists match an array model through deterministic randomized changes', () => {
     let sculptor = new DomSculptor();
     let items = sculptor.signal([]);
@@ -2210,6 +2256,36 @@ test('effects track the signals they read and rerun through the scheduler', () =
     enabled.set(true);
     sculptor.flush();
     assert.equal(runs.length, 3);
+});
+
+test('disposal detaches the node before tearing the subtree down', () => {
+    let sculptor = new DomSculptor();
+    let parent = sculptor.create('div', document.body);
+    let child = sculptor.createIn(parent, 'span');
+    let grandchild = sculptor.createIn(child, 'em');
+    let root = parent.html.parentNode;
+    assert.equal(root, document.body);
+
+    // Removing the node first means every descendant is disposed off the
+    // document, which is what makes clearing a large list cheap. Dispose hooks
+    // therefore observe a detached node, and that is the contract.
+    let observed = [];
+    let record = name => element => observed.push([name, element.html.parentNode]);
+    parent.onRemove(record('parent'));
+    child.onRemove(record('child'));
+    grandchild.onRemove(record('grandchild'));
+
+    parent.remove();
+
+    assert.deepEqual(observed, [
+        ['grandchild', null],
+        ['child', null],
+        ['parent', null]
+    ]);
+    assert.equal(root.childNodes.includes(parent.html), false);
+    assert.equal(parent.html, null);
+    assert.equal(child.html, null);
+    assert.equal(grandchild.html, null);
 });
 
 test('an explicit empty dependency list opts out of automatic tracking', () => {
