@@ -1389,9 +1389,12 @@ class DomSculptor {
                 if (element !== active && element.html && element.html.parentNode == null) element.remove();
             });
             preserved.clear();
+            // Stopping early has to release the runtime's ownership entry too, or
+            // repeatedly creating and stopping regions accumulates dead closures.
+            release?.();
         };
         parentElement.onRemove(stop);
-        this._track(stop);
+        let release = this._track(stop);
         return stop;
     }
 
@@ -1593,8 +1596,34 @@ class DomSculptor {
                 ? Math.min(total, firstVisible + Math.ceil(viewport / rowHeight) + overscan + 1)
                 : 0;
 
+            // A row holding focus must survive a pass that would otherwise unmount it,
+            // or scrolling removes the input someone is typing in.
+            let ownerDocument = node.ownerDocument || (typeof document !== 'undefined' ? document : null);
+            let focused = ownerDocument?.activeElement || null;
+            if (focused && !node.contains(focused)) focused = null;
+            let selection = focused && typeof focused.selectionStart === 'number'
+                ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection }
+                : null;
+            let focusedKey = null;
+            if (focused) {
+                state.rows.forEach((row, key) => {
+                    if (focusedKey == null && row.root.html?.contains(focused)) focusedKey = key;
+                });
+            }
+
             let needed = new Map();
             for (let index = start; index < end; index++) needed.set(keyFor(state.items[index], index), index);
+            // Retained outside the range, and taken out of the row flow so the visible
+            // rows stay contiguous. Searching for its index only happens while a
+            // focused row is actually off-range.
+            let floating = null;
+            if (focusedKey != null && !needed.has(focusedKey)) {
+                let at = state.items.findIndex((item, index) => keyFor(item, index) === focusedKey);
+                if (at > -1) {
+                    needed.set(focusedKey, at);
+                    floating = focusedKey;
+                }
+            }
             let ordered = [];
             let added = [];
             let release = key => {
@@ -1618,13 +1647,27 @@ class DomSculptor {
                         state.rows.set(key, row);
                         added.push(key);
                         content.child.append(row.root);
-                    } else {
+                    } else if (key !== focusedKey) {
+                        // A row holding focus is never rewritten underneath the person
+                        // using it; the next pass after focus leaves updates it.
                         row.update?.(item, index);
                     }
                     if (aria) {
                         row.root.attribute.set({ 'aria-posinset': index + 1, 'aria-setsize': total });
                     }
-                    ordered.push(row.root);
+                    if (key === floating) {
+                        row.root.setStyle({
+                            position: 'absolute',
+                            top: `${(index - start) * rowHeight}px`,
+                            left: '0px',
+                            right: '0px'
+                        });
+                    } else {
+                        if (state.floating === key) {
+                            row.root.setStyle({ position: '', top: '', left: '', right: '' });
+                        }
+                        ordered.push(row.root);
+                    }
                 });
             } catch (error) {
                 added.forEach(release);
@@ -1645,6 +1688,18 @@ class DomSculptor {
             content.setStyle('transform', `translateY(${start * rowHeight}px)`);
             state.start = start;
             state.end = end;
+            state.floating = floating;
+            // Moving a node between parents drops focus in some engines, so it is
+            // restored here rather than assumed to survive.
+            if (focused && focused.isConnected && ownerDocument?.activeElement !== focused &&
+                typeof focused.focus === 'function') {
+                try {
+                    focused.focus({ preventScroll: true });
+                    if (selection && typeof focused.setSelectionRange === 'function') {
+                        focused.setSelectionRange(selection.start, selection.end, selection.direction || undefined);
+                    }
+                } catch { /* focus restoration is best effort */ }
+            }
         };
 
         let schedule = () => {
@@ -1662,6 +1717,8 @@ class DomSculptor {
         };
 
         container.html.addEventListener('scroll', schedule);
+        // Without this a row retained for focus stays mounted until the next scroll.
+        container.html.addEventListener('focusout', schedule);
         let observer = null;
         let resizing = false;
         if (typeof ResizeObserver === 'function') {
@@ -1675,6 +1732,7 @@ class DomSculptor {
         state.apply = apply;
         state.teardown = () => {
             container.html?.removeEventListener('scroll', schedule);
+            container.html?.removeEventListener('focusout', schedule);
             observer?.disconnect();
             if (resizing) window.removeEventListener('resize', schedule);
             if (state.pendingFrame != null && typeof cancelAnimationFrame === 'function') {

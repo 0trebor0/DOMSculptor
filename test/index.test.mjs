@@ -2223,6 +2223,25 @@ test('batch defers rendering until the outermost batch completes', () => {
     value.dispose();
 });
 
+test('stopping a conditional region releases its runtime ownership entry', () => {
+    let sculptor = new DomSculptor();
+    let host = sculptor.create('div', document.body);
+    let baseline = sculptor._rootScope._cleanups.size;
+
+    // Churned rather than checked once: the entry is a closure, so a leak here
+    // shows up as unbounded growth rather than as a visible failure.
+    for (let round = 0; round < 300; round++) {
+        let visible = sculptor.signal(true);
+        let stop = sculptor.when(visible, () => sculptor.createDetached('b'), { parent: host });
+        stop();
+        visible.dispose();
+    }
+
+    assert.equal(sculptor._rootScope._cleanups.size, baseline,
+        'stopping a region must not leave its ownership entry behind');
+    sculptor.dispose();
+});
+
 test('conditional branches dispose factories unless preservation is requested', () => {
     let sculptor = new DomSculptor();
     let visible = sculptor.signal(true);

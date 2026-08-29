@@ -103,7 +103,7 @@ count.dispose();</code></pre>
     <section id="virtual-lists">
       <p class="eyebrow">Large collections</p>
       <h2>Virtual lists</h2>
-      <p><code>virtualList(items, container, options)</code> keeps only the visible range and a configurable overscan in the DOM while a spacer represents the full collection height. Options are <code>rowHeight</code> (required), <code>render</code> (required), <code>overscan</code>, <code>key</code>, and <code>aria</code>. A <code>render</code> may return a <code>DomElement</code> or a reusable row <code>{ root, update?, dispose? }</code>; reused rows must read their item from <code>update()</code>. Companion methods are <code>updateVirtualList</code>, <code>scrollVirtualList</code> (by index or by key, aligned start, center, end, or nearest, returning <code>false</code> for unreachable targets), <code>virtualListStatus</code> (a frozen snapshot of rendering, start, end, mounted, and total), and <code>disposeVirtualList</code>. Scroll and resize collapse into one pass per animation frame, duplicate keys are rejected before any DOM change, and a failing render rolls back the rows it created.</p>
+      <p><code>virtualList(items, container, options)</code> keeps only the visible range and a configurable overscan in the DOM while a spacer represents the full collection height. Options are <code>rowHeight</code> (required), <code>render</code> (required), <code>overscan</code>, <code>key</code>, and <code>aria</code>. A <code>render</code> may return a <code>DomElement</code> or a reusable row <code>{ root, update?, dispose? }</code>; reused rows must read their item from <code>update()</code>. Companion methods are <code>updateVirtualList</code>, <code>scrollVirtualList</code> (by index or by key, aligned start, center, end, or nearest, returning <code>false</code> for unreachable targets), <code>virtualListStatus</code> (a frozen snapshot of rendering, start, end, mounted, and total), and <code>disposeVirtualList</code>. Scroll and resize collapse into one pass per animation frame, duplicate keys are rejected before any DOM change, and a failing render rolls back the rows it created. A row holding the focused element stays mounted outside the visible range, positioned out of the row flow, and is released on the first pass after focus moves away; its <code>update()</code> is skipped while it holds focus so a refresh cannot overwrite what is being typed.</p>
     </section>
 
     <section id="routing">
@@ -162,6 +162,6 @@ count.dispose();</code></pre>
       <p>Invalid API input throws <code>TypeError</code>. Missing strict selectors and invalid mounts throw. Search operations and <code>tryWrap</code>/<code>tryMount</code> may return <code>null</code>. Subscriber notification continues across failures before rethrowing; multiple cleanup failures become <code>AggregateError</code>.</p>
     </section>
   </main>
-  <footer><span>DOMSculptor API</span><span>Version 2.0.0</span></footer>
+  <footer><span>DOMSculptor API</span><span>Version 3.0.0</span></footer>
 </body>
 </html>

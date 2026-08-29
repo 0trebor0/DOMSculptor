@@ -32,7 +32,7 @@ for (let method of convenienceMethods) {
 }
 
 let manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-assert.equal(manifest.version, '2.0.0');
+assert.equal(manifest.version, '3.0.0');
 assert.ok(manifest.files.includes('benchmark'));
 assert.ok(manifest.files.includes('docs'));
 assert.ok(manifest.files.includes('dist/*.js'));

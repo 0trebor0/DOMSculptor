@@ -3,7 +3,7 @@
 All notable changes to DOMSculptor will be documented in this file. The project
 uses [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 3.0.0
 
 ### Added
 
@@ -11,6 +11,17 @@ uses [Semantic Versioning](https://semver.org/).
   in real Chromium - what each one does, what it rejects, and what it does after
   disposal - and then enumerates the reachable surface and fails if anything was
   not exercised. 35 probes over 158 members.
+- Focus handling for virtual lists, completing the version-one scope. A row
+  containing the focused element stays mounted after scrolling takes it outside
+  the visible range, positioned out of the row flow so the visible rows stay
+  contiguous, and is released on the first pass after focus moves away. Its
+  `update()` is skipped while it holds focus, so a collection refresh cannot
+  overwrite a half-typed value, and focus and text selection are restored if a
+  reorder drops them. Previously, scrolling could unmount an input mid-typing.
+- `test/virtual-9000.html`, a standalone page demonstrating 9,000 records against
+  a few dozen mounted rows, with live mounted count, visible range, scroll
+  position, rendering status, initial render time, and refresh, jump-to-index,
+  and dispose/recreate controls.
 - Named nodes in `tree()`. Pass a `refs` object at the root and a `ref` name on
   any node, and the tree fills it in as it builds, instead of reaching back into
   a tree with a CSS selector that can match the wrong node first.
@@ -118,6 +129,15 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Documented that automatic dependency tracking is synchronous: a signal read
+  after an `await` inside a computed value or effect is not discovered, because
+  the collector is installed only for the synchronous run. This matches Solid and
+  Vue, and the README now shows how to read dependencies before awaiting.
+- `when()` releases its runtime ownership entry when a region is stopped early.
+  It registered a cleanup with the owning scope and never removed it, so
+  repeatedly creating and stopping conditional regions accumulated dead closures
+  on the scope. One entry per region, so it was bounded in practice, but it grew
+  without limit in a long-lived runtime that churns regions.
 - A subscription created with `signal.subscribe()` inside a scope now belongs to
   that scope and is released with it. Element bindings already released
   themselves with their element, but a bare subscribe had no owner at all, which

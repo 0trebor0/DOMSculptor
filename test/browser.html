@@ -547,6 +547,74 @@ try {
     assert(virtualHost.html !== null, 'explicit virtual disposal removed the container');
     virtualSculptor.dispose();
 
+    // Focus retention: a row holding focus must survive a pass that would unmount it,
+    // or scrolling removes the input someone is typing in.
+    let focusSculptor = new DomSculptor();
+    let focusRecords = Array.from({ length: 2000 }, (_, id) => ({ id, label: 'Item ' + id }));
+    let focusHost = focusSculptor.create('div').setStyle({
+        height: '240px',
+        overflow: 'auto',
+        position: 'relative'
+    });
+    focusSculptor.mount(focusHost, document.body);
+    focusSculptor.virtualList(focusRecords, focusHost, {
+        rowHeight: 40,
+        overscan: 2,
+        key: item => item.id,
+        render(item) {
+            let root = focusSculptor.createDetached('div');
+            let field = root.child.create('input');
+            field.attribute.set('data-id', String(item.id));
+            field.setValue(item.label);
+            return { root, update: next => field.setValue(next.label) };
+        }
+    });
+    await nextFrame();
+
+    let typedField = focusHost.html.querySelector('input[data-id="3"]');
+    assert(typedField !== null, 'focus test could not find the row to focus');
+    typedField.focus();
+    typedField.value = 'typing here';
+    typedField.setSelectionRange(6, 6);
+    assert(document.activeElement === typedField, 'focus test could not focus the input');
+
+    focusHost.html.scrollTop = 1500 * 40;
+    await nextFrame();
+    assert(document.body.contains(typedField), 'scrolling unmounted the row holding focus');
+    assert(document.activeElement === typedField, 'scrolling stole focus from the retained row');
+    assert(typedField.value === 'typing here', 'the retained row lost what was typed into it');
+    assert(typedField.selectionStart === 6, 'the retained row lost its selection');
+    assert(focusHost.html.querySelector('input[data-id="1500"]') !== null,
+        'the scrolled range did not render while a row was retained');
+    let focusStatus = focusSculptor.virtualListStatus(focusHost);
+    assert(focusStatus.start > 1400, 'the range did not follow the scroll');
+    assert(focusStatus.mounted <= 40, `retaining focus mounted ${focusStatus.mounted} rows`);
+
+    // A keyed refresh must not drop focus while the key survives.
+    focusSculptor.updateVirtualList(
+        focusHost,
+        focusRecords.map(record => (
+            record.id === 3 || record.id === 1500
+                ? { id: record.id, label: 'Item ' + record.id + ' refreshed' }
+                : record
+        ))
+    );
+    await nextFrame();
+    assert(document.activeElement === typedField, 'a collection refresh dropped focus');
+    assert(typedField.value === 'typing here', 'a refresh overwrote the row being typed into');
+    assert(focusHost.html.querySelector('input[data-id="1500"]').value === 'Item 1500 refreshed',
+        'holding focus on one row stopped the others refreshing');
+
+    // The retained row is released once focus moves elsewhere.
+    let outsideField = focusSculptor.create('input');
+    focusSculptor.mount(outsideField, document.body);
+    outsideField.html.focus();
+    await nextFrame();
+    assert(!document.body.contains(typedField), 'the retained row was not released after focus moved away');
+    assert(focusSculptor.virtualListStatus(focusHost).mounted <= 40,
+        'releasing the retained row left extra rows mounted');
+    focusSculptor.dispose();
+
     let routerSculptor = new DomSculptor();
     let routerHost = routerSculptor.create('main');
     routerSculptor.mount(routerHost, document.body);

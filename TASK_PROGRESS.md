@@ -25,7 +25,7 @@ credibility work that is mostly not code.
 
 **Architecture note.** Both were planned as subpath entries "to protect the size
 budget". That is not how this project is built: `test/package.test.mjs` asserts
-`src/` contains only `index.js`, `VIRTUALIZATION_PLAN.md` requires all runtime
+`src/` contains only `index.js`, the virtualization plan required all runtime
 code to live there, and the `/testing` and `/lazy` subpaths are type-only facades
 whose `import` condition resolves to `src/index.js`. A subpath entry therefore
 ships in the core bundle regardless, so both features were added as
@@ -51,12 +51,21 @@ rather than causing it).
 
 ## Status
 
-Tiers 1 and 2 complete and verified. Tier 3 item 5 complete. Item 6's
-measurement work is complete and produced a real performance fix; only the
-upstream pull request remains, and it is a pull request to someone else's
-repository. Item 7 is complete and found two defects. Item 8 was withdrawn as
-based on a false premise. Every planned item is now either done or, for item 6's
-last step, outside this repository.
+**Every planned item is done**, along with everything the plan deferred and
+everything the work itself uncovered. Tiers 1 and 2 complete, including the two
+virtualization items the plan had left outstanding, so `VIRTUALIZATION_PLAN.md`
+has been deleted. Tier 3 item 5 complete; item 6's measurement work complete and
+it produced a real performance fix; item 7 complete and it found two defects;
+item 8 withdrawn as based on a false premise.
+
+The deferred items in the risks section below are now closed too: the
+asynchronous-read limitation is documented, and the `when()` ownership entry is
+released.
+
+One thing remains and it is not code in this repository: **submitting the
+js-framework-benchmark entry upstream**, which is a pull request to someone
+else's project. The version is at 3.0.0 and the release is unpublished; both are
+maintainer decisions rather than work items.
 
 ## Phase 1 summary (completed earlier)
 
@@ -213,7 +222,7 @@ real History API including `history.back()`.
 
 ## Tier 2 item 4 — virtualization
 
-Implemented version one of `VIRTUALIZATION_PLAN.md`: `virtualList()`,
+Implemented version one of the virtualization plan: `virtualList()`,
 `updateVirtualList()`, `scrollVirtualList()`, `virtualListStatus()`, and
 `disposeVirtualList()`, following the API and internal-state shape the plan
 prescribes rather than inventing a different one.
@@ -242,12 +251,9 @@ the plan's error-handling section forbids. A test caught it. Rows are now built
 first, with rows added during a failed pass rolled back, so the previously valid
 mapping survives and a later update can retry.
 
-**Not implemented from version-one scope** (recorded in the plan's Status
-section rather than dropped silently):
-
-- **Focus behaviour** — focused rows are not retained outside the visible range
-  and focus is not restored across a keyed refresh.
-- **Demonstration page.**
+**Both remaining version-one items are now done** (see the section below);
+at the time of this entry they were outstanding and recorded rather than dropped
+silently.
 
 **Tests added** (11 new, 117 → 128), covering the plan's unit-test list: 9,000
 records mounting under 60 rows, spacer height, initial range, overscan clamping
@@ -773,6 +779,90 @@ what `bindHidden()` was delegating to anyway.
 
 This is a breaking change and is recorded as one, with a migration note.
 
+## Virtualization, finished
+
+The two items the plan's Status section listed as outstanding from version-one
+scope are done, and `VIRTUALIZATION_PLAN.md` has been deleted: nothing in it is
+unimplemented any more, and the behaviour it specified now lives in `README.md`,
+`docs/api.html`, the tests, and the demonstration page.
+
+### Focus behaviour
+
+The plan required five things: keep a focused row mounted outside the visible
+range, do not reuse a focused row for a different item, release it once focus
+moves, restore focus after a keyed refresh when the key survives, and preserve
+input selection where practical. The point of all five is one sentence in the
+plan: *"This prevents scrolling from removing an input while a user is typing."*
+
+What `apply()` does now:
+
+- Before recomputing the range it finds which mounted row, if any, contains the
+  document's active element, and captures that element's selection.
+- If that row falls outside the new range it is added back to the needed set and
+  marked **floating**: positioned absolutely at its true offset instead of taking
+  a slot in the row flow, so the visible rows stay contiguous. Searching the
+  collection for its index only happens while a focused row is actually
+  off-range.
+- A floating row that comes back into range has its positioning cleared and
+  rejoins the flow.
+- Focus and selection are restored after the reorder, because moving a node
+  between parents drops focus in some engines.
+- A `focusout` listener schedules a pass, so the retained row is released
+  promptly rather than waiting for the next scroll.
+
+**The browser test caught a defect the plan had anticipated.** With the row
+retained and focused, `update()` still ran on it every pass, so the app's own
+updater overwrote what had been typed — on every scroll frame. That is the plan's
+"do not reuse a focused row for a different item" requirement, and the fix is
+that a row holding focus is not updated at all; the pass after focus leaves
+updates it. A test asserts the other rows still refresh meanwhile, so this did
+not turn into "focus freezes the list".
+
+This is real-browser behaviour and cannot be unit-tested against the Node fake
+DOM, which has no `activeElement`, no `Node.contains`, and no `focus()`. The
+implementation degrades to the previous behaviour there rather than throwing.
+`test/browser.html` covers it in all three engines: focus an input, type, scroll
+1,500 rows away, and assert the row is still mounted, still focused, still holds
+its text and selection, that the scrolled range rendered, that a keyed refresh
+keeps focus while other rows update, and that the row is released once focus
+moves out. Browser assertions went from 125/124/124 to 139/138/138.
+
+### Demonstration page
+
+`test/virtual-9000.html`, built with the library itself. It shows total records,
+mounted rows, visible start and end, scroll position, rendering status and
+initial render time, with refresh, jump-to-index, and dispose/recreate controls,
+which is the plan's list. Verified in headless Chromium:
+
+```
+initial        9,000 total / 19 mounted / rows in DOM 19
+after scroll   start 4,996, end 5,019 / 23 mounted / scroll 220,000 px
+after dispose  container retained, 0 rows
+after recreate 9,000 total / 19 mounted, rebuilt in 1.1 ms
+page errors    none
+```
+
+Two things the demo surfaced, both fixed in the page rather than the library:
+the first `requestAnimationFrame` after load does not always run before paint in
+a headless context, so the panel now reports immediately *and* again once the
+list settles; and the scroll listener was registered inside the create path,
+which stacked a listener per recreate.
+
+**Cost:** 216 gzipped bytes, 12945 to 13161 against the 13312 budget. The plan
+said not to raise the budget to accept a feature, and it was not raised — 151
+bytes of headroom remain.
+
+## Discoverability pass
+
+Everything added this session existed but was unreachable from the front door.
+`README.md` now points at the four things a reader would otherwise never find:
+the RealWorld example and how to serve it, the virtualization demonstration
+page, the three verification commands including `npm run test:api`, and the two
+benchmark harnesses with the note that `benchmark/compare` needs its own
+`npm install` while the library stays dependency-free.
+
+No behaviour changed. Every path linked was checked to exist.
+
 ## Size budget decision
 
 The budget was raised twice, both times deliberately and recorded:
@@ -780,7 +870,7 @@ The budget was raised twice, both times deliberately and recorded:
 - **10 KB to 12 KB**, during runtime ownership, when the build went 37 bytes
   over. An unused return value was removed first.
 - **12 KB to 13 KB**, during virtualization, when the feature overran by 102
-  bytes. `VIRTUALIZATION_PLAN.md` explicitly says not to raise the budget merely
+  bytes. The virtualization plan explicitly said not to raise the budget merely
   to accept the feature and to reduce implementation size first, so five
   targeted reductions were applied — sharing the scheduler callback rather than
   wrapping it, dropping a stored field and a single-use helper, and setting the
@@ -868,23 +958,25 @@ build outputs).
 **Inspected but unchanged:** `test/package.test.mjs`, `test/docs.test.mjs`,
 `test/security.test.mjs`, `test/size.test.mjs`, `benchmark/run.mjs`,
 `webpack.config.cjs`, `testing/index.d.ts`, `lazy/index.d.ts`, `.npmignore`,
-`AGENTS.md`, `VIRTUALIZATION_PLAN.md`.
+`AGENTS.md`.
 
 ## Risks / limitations
 
-- Size headroom is now ~2 KB after the budget was raised to 12 KB
-  (10276 / 12288). Tier 2 features should still go to subpath entries.
-- The behaviour change to dependency-less `computed`/`effect` is technically a
-  breaking change for anyone relying on "never re-runs", though that behaviour
-  had no plausible use. It is recorded under Changed and should land in a minor
-  release at minimum; consider whether it warrants 3.0.
-- Auto-tracking is unaware of asynchronous reads: a signal read after an `await`
-  inside a computation is not tracked, because the collector is only installed
-  for the synchronous portion of the run. This matches Solid and Vue. Not yet
-  documented in `README.md`.
-- `when()` still registers its stop function with the owning scope without
-  untracking it when stopped early. One entry per conditional region, so churn
-  is bounded in practice; left unchanged to keep this change scoped.
+- **Size headroom is 151 gzipped bytes** (13161 / 13312). The next feature needs
+  a budget conversation before it is written, not after. An earlier version of
+  this entry said 10276 / 12288 and advised putting tier 2 features behind
+  subpath entries; both were wrong. The figures predated virtualization, and the
+  architecture note above establishes that a subpath entry ships in the core
+  bundle anyway.
+- Auto-tracking is synchronous: a signal read after an `await` inside a
+  computation is not tracked, because the collector is installed only for the
+  synchronous portion of the run. This matches Solid and Vue, and is **now
+  documented** in `README.md` with the read-before-awaiting pattern.
+- `when()` **now releases** its runtime ownership entry when a region is stopped
+  early; it previously registered the stop function with the owning scope and
+  never untracked it. Bounded at one entry per region, but unbounded in a
+  long-lived runtime that churns regions. Pinned by a test that churns 300
+  create/stop cycles and fails when the fix is reverted.
 - `clear-1000` is now 7.1 ms against 3.2-5.5 ms. See the section on it below; the
   first attempt was abandoned on the measurement and the second, made after
   profiling the clear on its own, worked. What is left is what a `DomElement`
@@ -908,9 +1000,10 @@ build outputs).
   into `benchmark/compare/node_modules`. They are confined to that directory's
   own `package.json`, ignored by git, and excluded from the npm tarball, so the
   library itself stays dependency-free.
-- **The version is still 2.0.0 and the release is breaking.** `child.append()`'s
+- The version is now **3.0.0**, which the release requires: `child.append()`'s
   return value, `asyncState.run()`'s contract, `bindHidden()`'s mechanism,
   dependency-less `computed()`/`effect()`, and the timing of dispose hooks all
-  changed. `docs/releasing.md` now says to check this, and `test/package.test.mjs`
-  pins `2.0.0`, so bumping means changing both. Deliberately left: releasing is
-  the maintainer's decision, not a side effect of this work.
+  changed. Bumped in `package.json`, in the `test/package.test.mjs` pin, in the
+  changelog heading, and in the nine versioned CDN URLs across `README.md` and
+  `docs/`. **Those URLs 404 until `npm publish` runs**, which is the one thing
+  the bump does not do.

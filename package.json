@@ -1,6 +1,6 @@
 {
   "name": "domsculptor",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A tiny, dependency-free, client-side reactive DOM toolkit for widgets, browser extensions, embedded interfaces, progressive enhancement, and small applications.",
   "type": "module",
   "main": "./src/index.js",

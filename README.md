@@ -66,7 +66,7 @@ focused types.
 
 ```html
 <script type="module">
-    import DomSculptor from 'https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js';
+    import DomSculptor from 'https://cdn.jsdelivr.net/npm/domsculptor@3.0.0/dist/domsculptor.esm.min.js';
 
     let sculptor = new DomSculptor();
 </script>
@@ -78,7 +78,7 @@ The version is pinned deliberately. Do not import production code from a mutable
 
 ```html
 <div id="app"></div>
-<script src="https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/domsculptor@3.0.0/dist/domsculptor.min.js"></script>
 <script>
     let sculptor = new DomSculptor();
     sculptor.create('button', '#app').setText('Hello DOMSculptor');
@@ -96,7 +96,7 @@ Save this as an HTML file and open it in a browser:
 <title>DOMSculptor counter</title>
 <button id="counter"></button>
 <script type="module">
-    import DomSculptor from 'https://cdn.jsdelivr.net/npm/domsculptor@2.0.0/dist/domsculptor.esm.min.js';
+    import DomSculptor from 'https://cdn.jsdelivr.net/npm/domsculptor@3.0.0/dist/domsculptor.esm.min.js';
 
     let sculptor = new DomSculptor();
     let count = sculptor.state(0);
@@ -134,6 +134,16 @@ Continue with the [practical recipes](docs/recipes.html), use the
 [full examples](docs/examples.html). For application structure, routing,
 testing, lazy loading, and service boundaries, read the
 [large-project guide](docs/large-projects.html).
+
+Two things in this repository run as they are, with no build step:
+
+- [`example/realworld`](example/realworld/README.md) — a complete
+  [RealWorld](https://github.com/gothinkster/realworld) client: feeds, tag
+  filtering, pagination, articles, comments, favouriting, following, profiles,
+  the editor, and settings. `node example/realworld/serve.mjs`, then open
+  <http://127.0.0.1:8123/>. Its README records what building it found.
+- `test/virtual-9000.html` — 9,000 records against a few dozen mounted rows, with
+  a live panel and refresh, jump, and dispose controls.
 
 ## Creating Elements
 
@@ -400,6 +410,28 @@ recomputes, which is useful for a value that should be evaluated once:
 ```js
 let pinned = sculptor.computed(() => expensiveRead(), []);
 let watched = sculptor.computed(() => summarise(), [firstName, lastName]);
+```
+
+**Tracking is synchronous.** Only the signals read during the synchronous part of
+a computation are discovered; a signal read after an `await` is not, because the
+collector is installed for that synchronous run and nothing else. This matches
+Solid and Vue. If a computation has to await, read what it depends on first, or
+pass an explicit dependency list:
+
+```js
+// query.get() is tracked; filter.get() is not.
+let results = sculptor.computed(async () => {
+    let response = await fetch(`/search?q=${query.get()}`);
+    return shape(await response.json(), filter.get());
+});
+
+// Read first, so both are tracked.
+let tracked = sculptor.computed(async () => {
+    let term = query.get();
+    let mode = filter.get();
+    let response = await fetch(`/search?q=${term}`);
+    return shape(await response.json(), mode);
+});
 ```
 
 ### Effects and batching
@@ -918,6 +950,8 @@ sculptor.virtualList(items, list, {
 ```
 
 For 9,000 records this mounts roughly 20-60 rows instead of 9,000 nodes.
+`test/virtual-9000.html` demonstrates it: serve the repository and open that page
+to watch the mounted count stay flat while the total does not.
 
 ```js
 sculptor.updateVirtualList(list, nextItems);
@@ -926,6 +960,19 @@ sculptor.scrollVirtualList(list, { key: 'user-5000', align: 'nearest' });
 sculptor.virtualListStatus(list);  // { rendering, start, end, mounted, total }
 sculptor.disposeVirtualList(list); // remove virtualization, keep the container
 ```
+
+### Rows that hold focus
+
+A row containing the focused element is kept mounted even after scrolling takes
+it outside the visible range, so scrolling cannot pull an input out from under
+someone who is typing. The retained row is positioned out of the row flow, so the
+visible rows stay contiguous, and it is released on the first pass after focus
+moves elsewhere.
+
+While a row holds focus its `update()` is not called, so a collection refresh
+cannot overwrite a half-typed value. Every other row updates as usual, and the
+focused row updates again once focus leaves it. Focus and text selection are
+restored if a reorder drops them.
 
 Scrolling is coalesced into one rendering pass per animation frame, and
 `sculptor.rendering` reports queued virtual work alongside progressive creation.
@@ -1190,6 +1237,14 @@ Run `npm run benchmark` after `npm run build` for raw Chromium medians,
 variance, forced-GC memory data, runtime versions, and compressed bundle sizes.
 `npm run size` enforces a 13 KB gzip budget for the full builds.
 
+`benchmark/compare` measures the same keyed-list operations against React,
+Preact, Solid, and Vue in one browser process, verifying every implementation's
+DOM against the benchmark specification before timing anything. It has its own
+dependencies, so it needs `npm install` inside that directory first; the library
+stays dependency-free. `benchmark/js-framework-benchmark` is the keyed entry for
+the upstream project, with `node benchmark/jsfb-verify.mjs` checking it against a
+real DOM.
+
 ## Compatibility
 
 DOMSculptor follows semantic versioning. Patch releases fix compatible defects,
@@ -1213,6 +1268,17 @@ summary is not legal advice; the complete `LICENSE` text controls.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request.
+
+Three commands cover verification:
+
+```bash
+npm run check         # lint, unit tests, types, build, size budget, package
+npm run test:browser  # the same behaviour in Chromium, Firefox, and WebKit
+npm run test:api      # every public member exercised in a real browser
+```
+
+`npm run test:api` also fails when a newly added public member is not exercised
+by any probe, so the audit cannot silently fall behind the API.
 
 Maintainers should use the [release checklist](./docs/releasing.md) before
 creating a tag or publishing a package.

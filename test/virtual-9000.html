@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DOMSculptor — 9,000 records, a few dozen rows</title>
+    <style>
+        :root { color-scheme: light dark; }
+        body {
+            margin: 0;
+            padding: 24px;
+            font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+        }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        .lede { margin: 0 0 20px; opacity: 0.75; }
+        .panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .stat {
+            border: 1px solid rgba(128, 128, 128, 0.35);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .stat .name { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.65; }
+        .stat .value { font-size: 20px; font-variant-numeric: tabular-nums; }
+        .proof .value { font-weight: 700; }
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+        button, input {
+            font: inherit;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(128, 128, 128, 0.5);
+            background: transparent;
+            color: inherit;
+        }
+        button { cursor: pointer; }
+        button:disabled { opacity: 0.45; cursor: default; }
+        input[type="number"] { width: 8em; }
+        #viewport {
+            height: 600px;
+            overflow: auto;
+            position: relative;
+            border: 1px solid rgba(128, 128, 128, 0.45);
+            border-radius: 8px;
+        }
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 12px;
+            box-sizing: border-box;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        }
+        .row .index { font-variant-numeric: tabular-nums; opacity: 0.6; min-width: 5em; }
+        .row input { flex: 1; }
+        .gone { padding: 24px; opacity: 0.7; }
+    </style>
+</head>
+<body>
+    <h1>9,000 records, a few dozen rows in the DOM</h1>
+    <p class="lede">
+        Scroll the list. The mounted count stays flat while the total does not.
+        Every row holds a text input: type into one, then scroll away — the row is
+        kept, and so is what you typed.
+    </p>
+    <div id="app"></div>
+
+    <script type="module">
+        import DomSculptor from '../src/index.js';
+
+        let sculptor = new DomSculptor();
+        let total = 9_000;
+        let rowHeight = 44;
+        let build = revision => Array.from({ length: total }, (unused, id) => ({
+            id,
+            label: `Row ${id}${revision ? ` — refresh ${revision}` : ''}`
+        }));
+
+        let revision = 0;
+        let records = build(0);
+        let live = sculptor.signal(true);
+        let stats = sculptor.store({
+            total: 0, mounted: 0, start: 0, end: 0, scroll: 0, rendering: 'no', built: '—'
+        });
+
+        let stat = (name, key, className) => ({
+            tag: 'div',
+            class: className ? ['stat', className] : 'stat',
+            children: [
+                { tag: 'div', class: 'name', text: name },
+                { tag: 'div', class: 'value', text: stats.signal(key) }
+            ]
+        });
+
+        let refs = {};
+        let app = sculptor.tree({
+            tag: 'div',
+            refs,
+            children: [
+                {
+                    tag: 'div',
+                    class: 'panel',
+                    children: [
+                        stat('Total records', 'total', 'proof'),
+                        stat('Mounted rows', 'mounted', 'proof'),
+                        stat('Visible start', 'start'),
+                        stat('Visible end', 'end'),
+                        stat('Scroll position', 'scroll'),
+                        stat('Rendering', 'rendering'),
+                        stat('Initial render', 'built')
+                    ]
+                },
+                {
+                    tag: 'div',
+                    class: 'controls',
+                    children: [
+                        { tag: 'button', ref: 'refresh', text: 'Refresh collection' },
+                        {
+                            tag: 'input',
+                            ref: 'target',
+                            attributes: { type: 'number', min: '0', max: String(total - 1), value: '8500' }
+                        },
+                        { tag: 'button', ref: 'jump', text: 'Jump to index' },
+                        { tag: 'button', ref: 'dispose', text: 'Dispose' },
+                        { tag: 'button', ref: 'recreate', text: 'Recreate' }
+                    ]
+                },
+                { tag: 'div', attributes: { id: 'viewport' }, ref: 'viewport' }
+            ]
+        });
+        sculptor.mount(app, '#app');
+
+        let viewport = refs.viewport;
+        let report = () => {
+            let status = sculptor.virtualListStatus(viewport);
+            stats.set({
+                total: status ? status.total.toLocaleString() : '—',
+                mounted: status ? String(status.mounted) : '—',
+                start: status ? status.start.toLocaleString() : '—',
+                end: status ? status.end.toLocaleString() : '—',
+                scroll: status ? `${Math.round(viewport.html.scrollTop).toLocaleString()} px` : '—',
+                rendering: sculptor.rendering ? 'yes' : 'no'
+            });
+        };
+        // Report at once so the panel is never blank, then again once the list has
+        // had its frame, so the settled numbers are the ones left on screen. The
+        // first frame after load does not always run before paint, so the immediate
+        // call is what guarantees the panel is populated.
+        let settle = () => {
+            report();
+            requestAnimationFrame(() => requestAnimationFrame(report));
+        };
+
+        let create = () => {
+            let started = performance.now();
+            sculptor.virtualList(records, viewport, {
+                rowHeight,
+                overscan: 4,
+                key: item => item.id,
+                render(item) {
+                    let row = sculptor.createDetached('div');
+                    row.class.add('row');
+                    let refs = {};
+                    row.child.append(sculptor.tree({
+                        tag: 'span',
+                        class: 'index',
+                        text: `#${item.id}`
+                    }));
+                    row.child.append(sculptor.tree({
+                        tag: 'input',
+                        ref: 'field',
+                        refs,
+                        attributes: { type: 'text', 'aria-label': `Row ${item.id}` }
+                    }));
+                    refs.field.setValue(item.label);
+                    return { root: row, update: next => refs.field.setValue(next.label) };
+                }
+            });
+            stats.set('built', `${(performance.now() - started).toFixed(1)} ms`);
+            live.set(true);
+            settle();
+        };
+
+        refs.refresh.on('click', () => {
+            if (!live.get()) return;
+            revision++;
+            records = build(revision);
+            sculptor.updateVirtualList(viewport, records);
+            settle();
+        });
+        refs.jump.on('click', () => {
+            if (!live.get()) return;
+            let index = Number(refs.target.getValue());
+            if (!Number.isFinite(index)) return;
+            sculptor.scrollVirtualList(viewport, Math.max(0, Math.min(total - 1, index)), { align: 'start' });
+            settle();
+        });
+        refs.dispose.on('click', () => {
+            if (!live.get()) return;
+            sculptor.disposeVirtualList(viewport);
+            live.set(false);
+            viewport.child.append(sculptor.tree({
+                tag: 'p',
+                class: 'gone',
+                text: 'Disposed. The container is still here; every row and listener is gone.'
+            }));
+            report();
+        });
+        refs.recreate.on('click', () => {
+            if (live.get()) return;
+            viewport.child.clear();
+            create();
+        });
+
+        for (let name of ['refresh', 'jump', 'dispose']) {
+            refs[name].attr('disabled', sculptor.computed(() => !live.get()));
+        }
+        refs.recreate.attr('disabled', live);
+
+        // Registered once rather than per creation, so recreating does not stack
+        // listeners. settle() reports the scroll position at once and the settled
+        // range after the list has had its frame.
+        viewport.on('scroll', settle);
+
+        create();
+        window.virtualDemo = { sculptor, viewport, report };
+    </script>
+</body>
+</html>

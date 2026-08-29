@@ -48,7 +48,7 @@ test('static documentation covers required guides and practical examples without
         assert.match(html + examples, new RegExp(example));
     }
 
-    assert.match(examples, /domsculptor@2\.0\.0/);
+    assert.match(examples, /domsculptor@3\.0\.0/);
     assert.match(html, /From an empty page to reactive UI/);
     for (let step of ['Install:', 'Add a mount point:', 'Create:', 'Connect:', 'Clean up:']) {
         assert.match(html, new RegExp(step));
@@ -97,7 +97,7 @@ test('static documentation covers required guides and practical examples without
     assert.match(api, /first call even though that element mounts immediately/);
     assert.match(api, /shared default <code>DomSculptor<\/code> instance/);
     assert.match(examples, /adopted wrapper remains reusable/);
-    assert.match(html, /domsculptor@2\.0\.0\/dist\/domsculptor\.esm\.min\.js/);
+    assert.match(html, /domsculptor@3\.0\.0\/dist\/domsculptor\.esm\.min\.js/);
     assert.ok((examples.match(/dispose\(\)/g) || []).length >= 8);
     assert.ok((examples.match(/<pre><code>/g) || []).length >= 8);
     assert.match(css, /@media \(max-width: 780px\)/);
