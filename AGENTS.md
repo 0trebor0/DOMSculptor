@@ -108,6 +108,7 @@
 ### Git and Repository Safety
 
 * Do not commit unless explicitly asked. Leave changes staged or in the working tree, uncommitted, until asked to commit.
+* When a commit is made, always commit directly to the main branch — do not create or use feature branches, unless the user explicitly asks for a branch.
 * Do not rewrite, reset, rebase, or otherwise change git history.
 * Do not discard existing user changes.
 * Do not modify generated files unless the task specifically requires regeneration.
